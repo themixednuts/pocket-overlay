@@ -66,6 +66,7 @@
   body.setup #setup { display: block; }
   .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
   #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
+  #setup select:disabled { opacity: .45; cursor: not-allowed; }
   .look { display: grid; gap: 8px; border: 1px solid #33363c; border-radius: 8px; padding: 14px; background: #15161a; }
   .look .hint { margin: 0 0 6px; font-size: 13px; }
   .lookrow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
@@ -214,14 +215,6 @@
 <div id="setup">
   <div class="devrow">
     <div><b id="devName">-</b> <span id="devLayout" style="color:var(--dim)"></span></div>
-    <label>Stick mode
-      <select id="modeSel" data-test="mode-select">
-        <option value="1">Mode 1 (throttle right)</option>
-        <option value="2">Mode 2 (throttle left)</option>
-        <option value="3">Mode 3 (throttle right)</option>
-        <option value="4">Mode 4 (throttle left)</option>
-      </select>
-    </label>
   </div>
   <h2>Look</h2>
   <div class="look">
@@ -238,9 +231,16 @@
     <div class="lookrow">
       <span class="looklabel">Under the radio</span>
       <label class="toggle"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" checked> Stick readout</label>
+      <select id="modeSel" data-test="mode-select" aria-label="Stick mode" title="Stick mode: which stick is throttle. Names the values in the readout.">
+        <option value="1">Mode 1 (throttle right)</option>
+        <option value="2">Mode 2 (throttle left)</option>
+        <option value="3">Mode 3 (throttle right)</option>
+        <option value="4">Mode 4 (throttle left)</option>
+      </select>
       <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" checked> Channel bars</label>
     </div>
-    <p class="hint">Turn both off for just the controller. OBS source size: <b id="obsSize" data-test="obs-size">680 &times; 830</b></p>
+    <p class="hint">The stick mode names the readout's values (THR, RUD, ELE, AIL); the drawing always follows the radio.
+      Turn both off for just the controller. OBS source size: <b id="obsSize" data-test="obs-size">680 &times; 830</b></p>
     <div class="lookrow">
       <span class="looklabel">Skin</span>
       <select id="skinSel" data-test="skin-select" aria-label="Skin"><option value="">Built-in drawing</option></select>
@@ -648,6 +648,7 @@ function renderSetup(s) {
   showAccentControls(accentPreview !== undefined ? accentPreview : s.accent || null);
   const parts = savedParts(s);
   $("showReadout").checked = parts.readout;
+  $("modeSel").disabled = !parts.readout; // it only names the readout's values
   $("showChannels").checked = parts.channels;
   $("obsSize").textContent = `680 × ${obsHeight(parts.readout, parts.channels)}`;
   if (s.skin_rev !== skinsRev) {

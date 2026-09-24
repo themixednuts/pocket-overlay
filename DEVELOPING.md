@@ -100,11 +100,11 @@ Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mi
 
 ## Releasing
 
-Push a version tag:
+Set `version` in `Cargo.toml`, commit, then push a matching tag:
 
 ```
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 `.github/workflows/release.yml` builds Windows x86_64, a macOS universal binary (Apple Silicon and Intel), and Linux x86_64 (built on Ubuntu 22.04 for older glibc). It attaches them to a GitHub release together with the README and, for Linux, `packaging/99-radiomaster-pocket.rules`.

@@ -1184,9 +1184,21 @@ fn the_strip_under_the_radio_can_be_turned_off() {
     // OBS draws the 682-wide front view 680 wide
     let px = 680.0 / 682.0;
 
+    // the stick mode only names the readout's values, so it's greyed out without it
+    let mode_usable = |usable: bool| {
+        setup.wait_until(
+            "stick mode greyed out with the readout",
+            &format!(
+                "document.querySelector('[data-test=mode-select]').disabled === {}",
+                !usable
+            ),
+        );
+    };
+
     parts_are(&obs, "11");
     parts_are(&pinned, "01");
     hint_is("680 × 830");
+    mode_usable(true);
     let full = layout(&obs);
     eprintln!("both shown: {full}");
     assert!(
@@ -1209,6 +1221,7 @@ fn the_strip_under_the_radio_can_be_turned_off() {
     toggle("channels");
     parts_are(&obs, "00");
     hint_is("680 × 660");
+    mode_usable(false);
     let bare = layout(&obs);
     eprintln!("just the controller: {bare}");
     obs.screenshot("just-the-controller");
@@ -1267,5 +1280,6 @@ fn the_strip_under_the_radio_can_be_turned_off() {
     toggle("readout");
     parts_are(&obs, "11");
     hint_is("680 × 830");
+    mode_usable(true);
     assert!(!ov.config_text().contains("show_"), "{}", ov.config_text());
 }
