@@ -32,6 +32,11 @@ pub struct OverlayState {
     /// Default skin, and a counter bumped whenever skin files change (so pages reload it).
     pub skin: Option<String>,
     pub skin_rev: u32,
+    /// Highlight colour (`#rrggbb`), `None` for the default.
+    pub accent: Option<String>,
+    /// Which parts show under the radio.
+    pub show_readout: bool,
+    pub show_channels: bool,
     /// Current channel assignments, for the setup view.
     pub sticks: Sticks,
     pub controls: Controls,
@@ -79,6 +84,9 @@ pub fn map(
         mode: cfg.mode,
         skin: cfg.skin.clone(),
         skin_rev,
+        accent: cfg.accent.clone(),
+        show_readout: cfg.show_readout,
+        show_channels: cfg.show_channels,
         sticks: cfg.sticks.clone(),
         controls: cfg.controls.clone(),
         learn,

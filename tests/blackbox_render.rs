@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{Overlay, Radio, Rng, channel_key, expected_channels};
+use headless_chrome::protocol::cdp::Emulation;
 use headless_chrome::{Browser, LaunchOptions, Tab};
 use serde_json::Value;
 
@@ -74,6 +75,15 @@ const MEASURE: &str = r#"(() => {
 
 impl Page {
     fn open(ov: &Overlay, query: &str) -> Option<Self> {
+        Self::open_with(ov, query, None)
+    }
+
+    /// Opens the page in a viewport of exactly this size, like an OBS browser source.
+    fn open_sized(ov: &Overlay, query: &str, (width, height): (u32, u32)) -> Option<Self> {
+        Self::open_with(ov, query, Some((width, height)))
+    }
+
+    fn open_with(ov: &Overlay, query: &str, viewport: Option<(u32, u32)>) -> Option<Self> {
         let path = browser_path()?;
         let opts = LaunchOptions::default_builder()
             .path(Some(path))
@@ -84,8 +94,36 @@ impl Page {
             .idle_browser_timeout(Duration::from_secs(120))
             .build()
             .unwrap();
-        let browser = Browser::new(opts).expect("launch browser");
-        let tab = browser.new_tab().unwrap();
+        // with every render test starting browsers at once, one sometimes times out starting
+        let mut tries = 0;
+        let (browser, tab) = loop {
+            tries += 1;
+            match Browser::new(opts.clone()).and_then(|b| b.new_tab().map(|t| (b, t))) {
+                Ok(started) => break started,
+                Err(e) if tries < 3 => eprintln!("browser didn't start ({e}); trying again"),
+                Err(e) => panic!("browser didn't start: {e}"),
+            }
+        };
+        if let Some((width, height)) = viewport {
+            // the window size includes the browser's own frame; this is the page's
+            tab.call_method(Emulation::SetDeviceMetricsOverride {
+                width,
+                height,
+                device_scale_factor: 1.0,
+                mobile: false,
+                scale: None,
+                screen_width: None,
+                screen_height: None,
+                position_x: None,
+                position_y: None,
+                dont_set_visible_size: None,
+                screen_orientation: None,
+                viewport: None,
+                display_feature: None,
+                device_posture: None,
+            })
+            .unwrap();
+        }
         tab.navigate_to(&ov.url(query))
             .unwrap()
             .wait_until_navigated()
@@ -1038,4 +1076,196 @@ fn the_saved_skin_shows_without_changing_the_obs_url() {
         p["shell"] == "frontBody" || p["shell"] == "frontShade",
         "{p}"
     );
+}
+
+// ---------------------------------------------------------------------------------------
+// accent colour
+
+/// The colour the power light is drawn in (it uses the accent while connected).
+const POWER_STROKE: &str = "getComputedStyle(document.getElementById('power')).stroke";
+
+#[test]
+fn accent_picked_on_the_setup_page_reaches_obs() {
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1") else {
+        return;
+    };
+    let Some(obs) = Page::open(&ov, "?trail=0") else {
+        return;
+    };
+    let Some(pinned) = Page::open(&ov, "?trail=0&accent=%23ff00ff") else {
+        return;
+    };
+    show(&mut ov, &obs, &Radio::default());
+    let colour_is = |page: &Page, rgb: &str| {
+        page.wait_until(rgb, &format!("{POWER_STROKE} === '{rgb}'"));
+    };
+    colour_is(&obs, "rgb(57, 255, 136)"); // default green
+
+    // a preset swatch
+    setup.eval("document.querySelector('[data-test=swatch-00e0ff]').click()");
+    colour_is(&obs, "rgb(0, 224, 255)");
+    colour_is(&setup, "rgb(0, 224, 255)");
+    assert_eq!(
+        setup.eval(
+            "document.querySelector('[data-test=swatch-00e0ff]').getAttribute('aria-pressed')"
+        ),
+        "true"
+    );
+    // any colour from the picker
+    setup.eval(
+        "const p = document.getElementById('accentPick'); p.value = '#123456'; p.dispatchEvent(new Event('input'))",
+    );
+    colour_is(&obs, "rgb(18, 52, 86)");
+    assert_eq!(
+        setup.eval("document.getElementById('accentHex').textContent"),
+        "#123456"
+    );
+    // a scene with ?accent= in its URL keeps its own colour
+    colour_is(&pinned, "rgb(255, 0, 255)");
+    // back to the default
+    setup.eval("document.getElementById('accentReset').click()");
+    colour_is(&obs, "rgb(57, 255, 136)");
+    assert_eq!(
+        setup.eval("document.getElementById('accentReset').disabled"),
+        true
+    );
+    assert!(!ov.config_text().contains("accent"), "{}", ov.config_text());
+}
+
+/// Where the radio and the strip under it are on screen, and where the drawing ends.
+const LAYOUT: &str = r#"(() => {
+  const q = s => document.querySelector(`[data-test="${s}"]`);
+  const r = e => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, bottom: b.bottom }; };
+  const root = document.getElementById("root"), vb = root.viewBox.baseVal, drawn = root.getBBox();
+  return JSON.stringify({
+    parts: root.dataset.parts, innerWidth, innerHeight,
+    body: r(document.getElementById("frontBody")), knob: r(q("knob-L")), ch1: r(q("ch-bg-1")),
+    readout: r(q("readout")).w > 0, channels: r(q("ch-bg-1")).w > 0,
+    vbBottom: vb.y + vb.height, drawnBottom: drawn.y + drawn.height,
+  });
+})()"#;
+
+#[test]
+fn the_strip_under_the_radio_can_be_turned_off() {
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1") else {
+        return;
+    };
+    // the OBS source size the README gives
+    let Some(obs) = Page::open_sized(&ov, "?trail=0", (680, 830)) else {
+        return;
+    };
+    // a scene that keeps the bars but not the readout, whatever is saved
+    let Some(pinned) = Page::open(&ov, "?trail=0&channels=1&readout=0") else {
+        return;
+    };
+    show(&mut ov, &obs, &Radio::default());
+    let layout = |page: &Page| -> Value {
+        serde_json::from_str(page.eval(LAYOUT).as_str().unwrap()).unwrap()
+    };
+    let parts_are = |page: &Page, parts: &str| {
+        page.wait_until(
+            parts,
+            &format!("document.getElementById('root').dataset.parts === '{parts}'"),
+        );
+    };
+    let hint_is = |size: &str| {
+        setup.wait_until(
+            size,
+            &format!("document.querySelector('[data-test=obs-size]').textContent === '{size}'"),
+        );
+    };
+    let toggle = |which: &str| {
+        setup.eval(&format!(
+            "document.querySelector('[data-test=show-{which}]').click()"
+        ));
+    };
+    // OBS draws the 682-wide front view 680 wide
+    let px = 680.0 / 682.0;
+
+    parts_are(&obs, "11");
+    parts_are(&pinned, "01");
+    hint_is("680 × 830");
+    let full = layout(&obs);
+    eprintln!("both shown: {full}");
+    assert!(
+        full["readout"] == true && full["channels"] == true,
+        "{full}"
+    );
+    assert_eq!(full["innerWidth"], 680, "{full}");
+    // nothing cut off at the README's size
+    assert!(
+        num(&full["drawnBottom"]) <= num(&full["vbBottom"]) + 0.5,
+        "{full}"
+    );
+    assert!(
+        num(&full["ch1"]["bottom"]) <= num(&full["innerHeight"]),
+        "{full}"
+    );
+
+    // both off on the setup page: just the controller
+    toggle("readout");
+    toggle("channels");
+    parts_are(&obs, "00");
+    hint_is("680 × 660");
+    let bare = layout(&obs);
+    eprintln!("just the controller: {bare}");
+    obs.screenshot("just-the-controller");
+    assert!(
+        bare["readout"] == false && bare["channels"] == false,
+        "{bare}"
+    );
+    // the radio doesn't move or change size in the scene
+    for part in ["body", "knob"] {
+        for d in ["x", "y", "w", "h"] {
+            approx(
+                num(&bare[part][d]),
+                num(&full[part][d]),
+                0.5,
+                &format!("{part}.{d}"),
+                &bare,
+            );
+        }
+    }
+    // the drawing ends right under the radio, and fits the suggested size
+    let spare = num(&bare["vbBottom"]) - num(&bare["drawnBottom"]);
+    assert!(
+        (-0.5..20.0).contains(&spare),
+        "{spare} spare at the bottom: {bare}"
+    );
+    assert!(num(&bare["body"]["bottom"]) <= 660.0, "{bare}");
+    let text = ov.config_text();
+    assert!(
+        text.contains("show_readout = false") && text.contains("show_channels = false"),
+        "{text}"
+    );
+    // the URL still wins for that one scene
+    parts_are(&pinned, "01");
+
+    // bars back without the readout: they move up into its place
+    toggle("channels");
+    parts_are(&obs, "01");
+    hint_is("680 × 790");
+    let bars = layout(&obs);
+    approx(
+        num(&bars["ch1"]["y"]),
+        num(&full["ch1"]["y"]) - 38.0 * px,
+        0.5,
+        "bars move up",
+        &bars,
+    );
+    approx(
+        num(&bars["knob"]["y"]),
+        num(&full["knob"]["y"]),
+        0.5,
+        "knob stays",
+        &bars,
+    );
+
+    // back to everything, and the settings file forgets it
+    toggle("readout");
+    parts_are(&obs, "11");
+    hint_is("680 × 830");
+    assert!(!ov.config_text().contains("show_"), "{}", ov.config_text());
 }

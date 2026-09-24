@@ -32,6 +32,15 @@ pub enum Command {
     },
     /// Sent by the server after a skin file was added, replaced or removed.
     SkinsChanged,
+    /// `{"cmd":"set_accent","accent":"#ff8800"}` (or `null` for the default), saved.
+    SetAccent {
+        accent: Option<String>,
+    },
+    /// `{"cmd":"set_show","readout":true,"channels":false}`: what shows under the radio.
+    SetShow {
+        readout: bool,
+        channels: bool,
+    },
 }
 
 const TICK: Duration = Duration::from_millis(50);
@@ -142,6 +151,21 @@ impl Engine {
                 }
             }
             Command::SkinsChanged => self.skin_rev += 1,
+            Command::SetShow { readout, channels } => {
+                if (readout, channels) != (self.config.show_readout, self.config.show_channels) {
+                    self.config.show_readout = readout;
+                    self.config.show_channels = channels;
+                    self.save("what shows under the radio");
+                }
+            }
+            Command::SetAccent { accent } => {
+                let accent = accent.map(|a| a.to_ascii_lowercase());
+                let ok = accent.as_deref().is_none_or(crate::config::valid_colour);
+                if ok && accent != self.config.accent {
+                    self.config.accent = accent;
+                    self.save("the accent colour");
+                }
+            }
         }
     }
 

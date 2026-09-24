@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <script src="traced.js"></script>
 <style>
-  /* Query options: ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0 &readout=0 &trail=0 &debug=1 &setup=1 */
+  /* Query options (override the saved look for one page): ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0|1 &readout=0|1 &trail=0 &debug=1 &setup=1 */
   :root {
     --accent: #39ff88;
     --shell: rgba(58, 52, 47, 0.92);
@@ -66,7 +66,28 @@
   body.setup #setup { display: block; }
   .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
   #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
-  .skinrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 6px 0; }
+  .look { display: grid; gap: 8px; border: 1px solid #33363c; border-radius: 8px; padding: 14px; background: #15161a; }
+  .look .hint { margin: 0 0 6px; font-size: 13px; }
+  .lookrow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .looklabel { min-width: 112px; font-weight: 700; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  #setup .swatch { width: 28px; height: 28px; border-radius: 50%; padding: 0; border: 2px solid rgba(0,0,0,.35); cursor: pointer;
+                   box-shadow: 0 0 0 1px rgba(255,255,255,.18); transition: transform .12s; }
+  #setup .swatch:hover { transform: scale(1.12); }
+  #setup .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #0e0f11, 0 0 0 4px var(--ink); }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .toggle input { appearance: none; width: 36px; height: 20px; border-radius: 999px; background: #3a3c42; position: relative; cursor: pointer; margin: 0; transition: background .15s; }
+  .toggle input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #e9ecf1; transition: transform .15s; }
+  .toggle input:checked { background: var(--accent); }
+  .toggle input:checked::after { transform: translateX(16px); background: #0e0f11; }
+  .toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .custom { display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; border: 1px solid #454850; border-radius: 999px;
+            background: #23252a; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .custom input[type=color] { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+  .custom input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+  .custom input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+  .custom input[type=color]::-moz-color-swatch { border: 0; border-radius: 50%; }
+  #setup button:focus-visible, .custom:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
   #setup .filebtn { display: inline-block; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   .hint { color: var(--dim); }
   #setup h2 { font-size: 15px; margin: 14px 0 6px; color: var(--dim); font-weight: 500; }
@@ -89,7 +110,7 @@
 </style>
 </head>
 <body>
-<svg id="root" xmlns="http://www.w3.org/2000/svg">
+<svg id="root" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMin meet">
   <defs>
     <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
       <feGaussianBlur stdDeviation="3" result="b"/>
@@ -202,13 +223,32 @@
       </select>
     </label>
   </div>
-  <h2>Skin</h2>
-  <p class="hint">Wrap the radio in your own image, like a vinyl skin: carbon fibre, camo, a pattern, your art. Upload any PNG and it's cropped to the radio's shape. Buttons, sticks, switches and the screen stay on top.</p>
-  <div class="skinrow">
-    <label>Showing <select id="skinSel" data-test="skin-select"><option value="">Built-in drawing</option></select></label>
-    <label class="filebtn">Upload PNG&hellip; <input type="file" id="skinFile" accept="image/png" hidden></label>
-    <button id="skinRemove" disabled>Remove</button>
-    <span id="skinMsg" class="hint"></span>
+  <h2>Look</h2>
+  <div class="look">
+    <div class="lookrow">
+      <span class="looklabel">Accent colour</span>
+      <div class="swatches" id="swatches" role="group" aria-label="Preset colours"></div>
+      <label class="custom" title="Pick any colour">
+        <input type="color" id="accentPick" data-test="accent-picker" value="#39ff88" aria-label="Pick any colour">
+        <span id="accentHex">#39ff88</span>
+      </label>
+      <button id="accentReset" data-test="accent-reset" disabled>Default</button>
+    </div>
+    <p class="hint">Lights, glows, bars and value ticks use this colour. OBS updates as you pick.</p>
+    <div class="lookrow">
+      <span class="looklabel">Under the radio</span>
+      <label class="toggle"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" checked> Stick readout</label>
+      <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" checked> Channel bars</label>
+    </div>
+    <p class="hint">Turn both off for just the controller. OBS source size: <b id="obsSize" data-test="obs-size">680 &times; 830</b></p>
+    <div class="lookrow">
+      <span class="looklabel">Skin</span>
+      <select id="skinSel" data-test="skin-select" aria-label="Skin"><option value="">Built-in drawing</option></select>
+      <label class="filebtn">Upload PNG&hellip; <input type="file" id="skinFile" accept="image/png" hidden></label>
+      <button id="skinRemove" disabled>Remove</button>
+      <span id="skinMsg" class="hint"></span>
+    </div>
+    <p class="hint">Wrap the radio in your own image, like a vinyl skin: carbon fibre, camo, a pattern, your art. Any PNG works; it's cropped to the radio's shape and the buttons, sticks, switches and screen stay on top.</p>
   </div>
   <div id="wizard">
     <div id="step" style="color:var(--dim)">Channel detection</div>
@@ -234,11 +274,14 @@ const q = new URLSearchParams(window.OVERLAY_QUERY ?? location.search);
 if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.get("accent"));
 const SETUP = q.get("setup") === "1";
 const SIDES = q.get("sides") === "1";
-const CHANNELS = q.get("channels") !== "0";
-const READOUT = q.get("readout") !== "0";
+// ?readout=0/1 and ?channels=0/1 override the saved choice for one page
+const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels");
 const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
 const DEBUG = q.get("debug") === "1";
 const SKIN_PARAM = q.get("skin"); // a skin name, or "none" for the built-in drawing
+const ACCENT_PARAM = q.get("accent"); // overrides the saved accent colour for this page
+const DEFAULT_ACCENT = "#39ff88";
+let shownAccent = null, accentPreview; // accentPreview: the setup page's pick until the server echoes it
 let shownSkin, skinsRev;
 if (SETUP) document.body.classList.add("setup");
 
@@ -268,11 +311,31 @@ document.querySelectorAll(".side-body").forEach(p => p.setAttribute("d", T.sideB
 document.querySelectorAll(".side-grip").forEach(p => p.setAttribute("d", T.sideGrip || ""));
 
 // ---------------- layout ----------------
-let vbTop = 175, vbBottom = 828;
-if (READOUT) vbBottom += 44;
-if (CHANNELS) vbBottom += 132;
-const vbLeft = SIDES ? -160 : 160, vbRight = SIDES ? 1162 : 842;
-$("root").setAttribute("viewBox", `${vbLeft} ${vbTop} ${vbRight - vbLeft} ${vbBottom - vbTop}`);
+const vbTop = 175, vbLeft = SIDES ? -160 : 160, vbRight = SIDES ? 1162 : 842;
+// Height of the drawing with or without the strip under the radio.
+const vbHeight = (readout, channels) => 828 + (readout ? 44 : 0) + (channels ? 132 : 0) - vbTop;
+// The OBS source height for a 680-wide source, rounded up to a round number: the radio is
+// pinned to the top, so the few spare pixels are empty space at the bottom.
+const obsHeight = (readout, channels) => Math.ceil(vbHeight(readout, channels) * 680 / 682 / 10) * 10; // OBS shows the 682-wide front view
+let shownParts;
+function applyParts(readout, channels) {
+  const key = `${+readout}${+channels}`;
+  if (key === shownParts) return;
+  shownParts = key;
+  $("readout").style.display = readout ? "" : "none";
+  $("channels").style.display = channels ? "" : "none";
+  $("channels").setAttribute("transform", readout ? "" : "translate(0 -38)");
+  $("root").setAttribute("viewBox", `${vbLeft} ${vbTop} ${vbRight - vbLeft} ${vbHeight(readout, channels)}`);
+  $("root").dataset.parts = key;
+}
+const showPart = (param, saved) => (param === null ? saved : param !== "0");
+let showPreview; // the setup page's pick until the server echoes it
+function savedParts(s) {
+  const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false };
+  if (showPreview && showPreview.readout === saved.readout && showPreview.channels === saved.channels) showPreview = undefined;
+  return showPreview || saved;
+}
+applyParts(showPart(READOUT_PARAM, true), showPart(CHANNELS_PARAM, true));
 if (!SIDES) { $("sideL").style.display = "none"; $("sideR").style.display = "none"; }
 if (DEBUG) $("debug").style.display = "block";
 
@@ -428,10 +491,10 @@ for (let i = 0; i < 8; i++) {
 }
 
 // ---------------- readout + channel strip under the radio ----------------
-const readoutText = READOUT ? el("text", { class: "readout", x: 501, y: 858, "data-test": "readout" }, $("readout")) : null;
+const readoutText = el("text", { class: "readout", x: 501, y: 858, "data-test": "readout" }, $("readout"));
 const chEls = [], btnEls = [];
-if (CHANNELS) {
-  const g = $("channels"), y0 = READOUT ? 880 : 842;
+{ // shifted up by applyParts when the readout is hidden
+  const g = $("channels"), y0 = 880;
   for (let i = 0; i < 8; i++) {
     const col = i >> 2, row = i & 3;
     const x = 232 + col * 312, y = y0 + row * 20, w = 190;
@@ -488,6 +551,8 @@ function mapped(id, v) { $(id).classList.toggle("unmapped", v == null); }
 function render(s) {
   const root = $("root");
   applySkin(SKIN_PARAM === "none" ? null : SKIN_PARAM || s.skin || null, s.skin_rev || 0);
+  if (accentPreview !== undefined && (s.accent || null) === accentPreview) accentPreview = undefined;
+  if (!ACCENT_PARAM) applyAccent(accentPreview !== undefined ? accentPreview : s.accent || null);
   root.classList.toggle("offline", !s.connected);
   $("power").setAttribute("stroke", s.connected ? "var(--accent)" : "#3a3c41");
   $("power").style.filter = s.connected ? "url(#glow)" : "";
@@ -534,16 +599,18 @@ function render(s) {
     b.bar.setAttribute("x", b.x + Math.min(0, len)); b.bar.setAttribute("width", Math.abs(len));
   });
 
-  if (readoutText && !s.connected) {
+  const parts = savedParts(s);
+  applyParts(showPart(READOUT_PARAM, parts.readout), showPart(CHANNELS_PARAM, parts.channels));
+  if (!s.connected) {
     readoutText.replaceChildren();
     el("tspan", { class: "k" }, readoutText).textContent = "NO SIGNAL";
-  } else if (readoutText) {
+  } else {
     readoutText.replaceChildren();
     const axes = STICK_MODES[s.mode] || STICK_MODES[2];
     const val = name => { const [stick, axis] = axes[name]; return s[stick][axis]; };
-    const parts = [["THR ", Math.round((clamp(val("THR")) + 1) * 50) + "%"], ["  RUD ", pct(val("RUD"))],
-                   ["  ELE ", pct(val("ELE"))], ["  AIL ", pct(val("AIL"))]];
-    for (const [k, v] of parts) {
+    const text = [["THR ", Math.round((clamp(val("THR")) + 1) * 50) + "%"], ["  RUD ", pct(val("RUD"))],
+                  ["  ELE ", pct(val("ELE"))], ["  AIL ", pct(val("AIL"))]];
+    for (const [k, v] of text) {
       el("tspan", { class: "k" }, readoutText).textContent = k;
       el("tspan", {}, readoutText).textContent = v;
     }
@@ -578,6 +645,11 @@ const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", ri
 function renderSetup(s) {
   $("devName").textContent = s.connected ? s.name : "No radio connected";
   if (document.activeElement !== $("modeSel")) $("modeSel").value = String(s.mode);
+  showAccentControls(accentPreview !== undefined ? accentPreview : s.accent || null);
+  const parts = savedParts(s);
+  $("showReadout").checked = parts.readout;
+  $("showChannels").checked = parts.channels;
+  $("obsSize").textContent = `680 × ${obsHeight(parts.readout, parts.channels)}`;
   if (s.skin_rev !== skinsRev) {
     skinsRev = s.skin_rev;
     refreshSkins(s.skin);
@@ -623,6 +695,56 @@ function renderSetup(s) {
 let socket = null;
 const send = (cmd, extra = {}) => socket && socket.readyState === 1 && socket.send(JSON.stringify({ cmd, ...extra }));
 $("modeSel").onchange = e => send("set_mode", { mode: Number(e.target.value) });
+
+// ---------------- accent colour ----------------
+function applyAccent(colour) {
+  if (colour === shownAccent) return;
+  shownAccent = colour;
+  if (colour) document.documentElement.style.setProperty("--accent", colour);
+  else document.documentElement.style.removeProperty("--accent");
+  $("root").dataset.accent = colour || "";
+}
+const PRESETS = [
+  ["Green (default)", "#39ff88"], ["Cyan", "#00e0ff"], ["Blue", "#4d8dff"], ["Purple", "#b36bff"],
+  ["Pink", "#ff4fb3"], ["Red", "#ff4d4d"], ["Orange", "#ff8a1f"], ["Yellow", "#ffd23f"], ["White", "#f2f4f7"],
+];
+for (const [name, colour] of PRESETS) {
+  const b = document.createElement("button");
+  b.className = "swatch";
+  b.style.background = colour;
+  b.dataset.colour = colour;
+  b.dataset.test = `swatch-${colour.slice(1)}`;
+  b.title = name;
+  b.setAttribute("aria-label", name);
+  b.onclick = () => chooseAccent(colour);
+  $("swatches").appendChild(b);
+}
+let accentTimer;
+// Shows the pick right away and tells the server (a little later while dragging the picker).
+function chooseAccent(colour, dragging = false) {
+  colour = colour && colour.toLowerCase() !== DEFAULT_ACCENT ? colour.toLowerCase() : null;
+  accentPreview = colour;
+  applyAccent(colour);
+  showAccentControls(colour);
+  clearTimeout(accentTimer);
+  accentTimer = setTimeout(() => send("set_accent", { accent: colour }), dragging ? 80 : 0);
+}
+function showAccentControls(colour) {
+  const c = colour || DEFAULT_ACCENT;
+  $("accentHex").textContent = c;
+  if (document.activeElement !== $("accentPick")) $("accentPick").value = c;
+  for (const b of $("swatches").children) b.setAttribute("aria-pressed", String(b.dataset.colour === c));
+  $("accentReset").disabled = !colour;
+}
+$("accentPick").oninput = e => chooseAccent(e.target.value, true);
+$("accentPick").onchange = e => chooseAccent(e.target.value);
+$("accentReset").onclick = () => chooseAccent(null);
+function sendShow() {
+  showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked };
+  send("set_show", showPreview);
+}
+$("showReadout").onchange = sendShow;
+$("showChannels").onchange = sendShow;
 
 // ---------------- skins ----------------
 // A skin wraps the radio's body like a vinyl skin: any PNG, scaled to cover the body and

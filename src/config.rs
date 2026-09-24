@@ -19,6 +19,14 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn yes() -> bool {
+    true
+}
+
 const fn ch(ch: usize) -> Option<Source> {
     Some(Source { ch, invert: false })
 }
@@ -63,8 +71,22 @@ pub struct Config {
     /// Skin shown by default (a PNG in the skins folder); none = the built-in drawing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skin: Option<String>,
+    /// Highlight colour as `#rrggbb`; none = the default green.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    /// Show the THR/RUD/ELE/AIL line under the radio.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_readout: bool,
+    /// Show the channel bars under the radio.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_channels: bool,
     pub sticks: Sticks,
     pub controls: Controls,
+}
+
+/// `#rrggbb`, nothing else (the value ends up in the page's CSS).
+pub fn valid_colour(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn default_mode() -> u8 {
@@ -79,6 +101,9 @@ impl Default for Config {
             usb_pid: edgetx::USB_PID,
             mode: default_mode(),
             skin: None,
+            accent: None,
+            show_readout: true,
+            show_channels: true,
             // Mode 2, AETR.
             sticks: Sticks {
                 left_x: Source {
@@ -175,6 +200,11 @@ impl Config {
         {
             bail!("skin {skin:?}: names are 1-40 letters, digits, - or _");
         }
+        if let Some(accent) = &self.accent
+            && !valid_colour(accent)
+        {
+            bail!("accent {accent:?}: use a colour like \"#39ff88\"");
+        }
         let max = edgetx::AXES + edgetx::BUTTONS;
         let s = &self.sticks;
         for (name, src) in [
@@ -259,6 +289,16 @@ mod tests {
         cfg.save(&path).unwrap();
         let err = format!("{:#}", Config::load_or_create(&path).unwrap_err());
         assert!(err.contains("SB needs an analog channel"), "{err}");
+    }
+
+    #[test]
+    fn colours() {
+        assert!(valid_colour("#39ff88") && valid_colour("#ABCDEF"));
+        for bad in [
+            "39ff88", "#39ff8", "#39ff888", "#39fg88", "red", "#fff", "#12345;}", "",
+        ] {
+            assert!(!valid_colour(bad), "{bad:?}");
+        }
     }
 
     #[test]

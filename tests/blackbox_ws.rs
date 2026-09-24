@@ -768,6 +768,73 @@ async fn stick_mode_is_set_from_the_page_and_saved() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn accent_colour_is_saved_and_checked() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["accent"], json!(null));
+    ws.send_json(json!({ "cmd": "set_accent", "accent": "#FF8800" }))
+        .await;
+    ws.wait_for("accent", |s| s["accent"] == json!("#ff8800"))
+        .await;
+    assert!(
+        ov.config_text().contains("accent = \"#ff8800\""),
+        "{}",
+        ov.config_text()
+    );
+    // anything that isn't #rrggbb is ignored: it would end up in the page's CSS
+    for bad in ["red", "#12345", "#1234567", "#12345g", "#123;}x", "url(x)"] {
+        ws.send_json(json!({ "cmd": "set_accent", "accent": bad }))
+            .await;
+    }
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 3 })).await;
+    let state = ws.wait_for("mode 3", |s| s["mode"] == json!(3)).await;
+    assert_eq!(state["accent"], json!("#ff8800"));
+    // back to the default
+    ws.send_json(json!({ "cmd": "set_accent", "accent": null }))
+        .await;
+    ws.wait_for("default accent", |s| s["accent"] == json!(null))
+        .await;
+    assert!(!ov.config_text().contains("accent"), "{}", ov.config_text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn strip_under_the_radio_can_be_hidden() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["show_readout"], json!(true));
+    assert_eq!(ws.last["show_channels"], json!(true));
+    // a fresh settings file doesn't mention them
+    assert!(!ov.config_text().contains("show_"), "{}", ov.config_text());
+
+    ws.send_json(json!({ "cmd": "set_show", "readout": false, "channels": false }))
+        .await;
+    ws.wait_for("both hidden", |s| {
+        s["show_readout"] == json!(false) && s["show_channels"] == json!(false)
+    })
+    .await;
+    let text = ov.config_text();
+    assert!(text.contains("show_readout = false"), "{text}");
+    assert!(text.contains("show_channels = false"), "{text}");
+
+    ws.send_json(json!({ "cmd": "set_show", "readout": true, "channels": false }))
+        .await;
+    ws.wait_for("readout back", |s| {
+        s["show_readout"] == json!(true) && s["show_channels"] == json!(false)
+    })
+    .await;
+    let text = ov.config_text();
+    assert!(!text.contains("show_readout"), "{text}");
+    assert!(text.contains("show_channels = false"), "{text}");
+
+    // half a command changes nothing
+    ws.send_json(json!({ "cmd": "set_show", "readout": false }))
+        .await;
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["show_readout"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn wizard_skip_and_cancel() {
     let mut ov = Overlay::start();
     let mut ws = Ws::connect(ov.port).await;

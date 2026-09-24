@@ -53,7 +53,9 @@ pocket-overlay --config <file> --port <n>
 
 A recording is plain text, one item per line: `name <text>`, `descriptor <hex>`, `wait <ms>`, `disconnect`, or a report as hex.
 
-Page options go in the query string: `accent=%23rrggbb`, `sides=1` (side views of the paddles, SE and S1), `channels=0`, `readout=0`, `trail=0`, `debug=1`, `setup=1`.
+Page options go in the query string: `accent=%23rrggbb`, `skin=name|none`, `channels=0|1`, `readout=0|1`, `sides=1` (side views of the paddles, SE and S1), `trail=0`, `debug=1`, `setup=1`. The look ones override what's saved (`accent`, `skin`, `show_readout`, `show_channels` in the settings file) for that one page.
+
+The drawing is pinned to the top of the page (`preserveAspectRatio="xMidYMin meet"`) and the viewBox ends under whatever is shown, so hiding the strip under the radio never moves or resizes the radio in a scene; it only frees space at the bottom.
 
 ## Tests
 
@@ -90,7 +92,7 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - two radios plugged in (it picks the Pocket);
   - reports never going backwards at 1000/s;
   - throughput (over 180,000 reports/s in a debug build).
-- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), the gimbals tilting like the real ones (the slot rolls the same way as the knob but less, and foreshortens), paddle lean, what's lit, bars, text, and the setup page.
+- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), the gimbals tilting like the real ones (the slot rolls the same way as the knob but less, and foreshortens), paddle lean, what's lit, bars, text, the setup page, the accent colour reaching OBS, and hiding the strip under the radio at the real OBS size (680 × 830) without the radio moving.
 - **`skins`**: uploads, lists, chooses and removes skins over HTTP and the WebSocket; rejects path-traversal names, non-PNGs and oversized files; refuses requests and WebSocket connections from other websites. `blackbox_render` checks a skin wraps the body inside the outline with every detail on top, and that `?skin=none` and a misspelt skin fall back to the drawing.
 - **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, a gimbal that slides instead of tilting, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 
