@@ -72,17 +72,28 @@
     body.setup { grid-template-rows: minmax(0, min(48vh, calc(100vw / var(--draw-aspect, .82)))) minmax(0, 1fr); }
   }
   #setup { display: none; padding: 12px max(clamp(12px, 4%, 20px), calc((100% - 1100px) / 2)) 24px; font-size: 14px;
-           min-width: 0; min-height: 0; overflow-y: auto; container-type: inline-size; }
-  body.setup #setup { display: block; }
-  .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
-  #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
+           min-width: 0; min-height: 0; overflow-y: auto; container-type: inline-size; align-content: start; gap: 12px; }
+  body.setup #setup { display: grid; }
+  #setup [hidden] { display: none !important; }
+  .hint { color: var(--dim); }
+  .status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #555a61; flex: none; }
+  .dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .dot.demo { background: var(--warn); }
+  .obs { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+  .obs code { color: var(--ink); }
+  .card { border: 1px solid #33363c; border-radius: 8px; padding: 12px 14px; background: #15161a; min-width: 0; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; margin: 0 0 12px; }
+  .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 16px; align-items: center; }
+  .label { font-weight: 700; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; min-width: 0; }
+  .cardhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .cardhead h2 { margin: 0; }
+  .actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; max-width: 100%; }
   #setup select:disabled { opacity: .45; cursor: not-allowed; }
-  .look { display: grid; gap: 8px; border: 1px solid #33363c; border-radius: 8px; padding: 14px; background: #15161a; }
-  .look .hint { margin: 0 0 6px; font-size: 13px; }
-  .lookrow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
-  .looklabel { min-width: 112px; font-weight: 700; }
   .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
-  #setup .swatch { width: 28px; height: 28px; border-radius: 50%; padding: 0; border: 2px solid rgba(0,0,0,.35); cursor: pointer;
+  #setup .swatch { width: 26px; height: 26px; border-radius: 50%; padding: 0; border: 2px solid rgba(0,0,0,.35); cursor: pointer;
                    box-shadow: 0 0 0 1px rgba(255,255,255,.18); transition: transform .12s; }
   #setup .swatch:hover { transform: scale(1.12); }
   #setup .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #0e0f11, 0 0 0 4px var(--ink); }
@@ -94,33 +105,30 @@
   .toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .custom { display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; border: 1px solid #454850; border-radius: 999px;
             background: #23252a; cursor: pointer; font-variant-numeric: tabular-nums; }
-  .custom input[type=color] { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+  .custom input[type=color] { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
   .custom input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
   .custom input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50%; }
   .custom input[type=color]::-moz-color-swatch { border: 0; border-radius: 50%; }
-  #setup button:focus-visible, .custom:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #setup .filebtn { display: inline-block; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
-  .hint { color: var(--dim); }
-  #setup h2 { font-size: 15px; margin: 14px 0 6px; color: var(--dim); font-weight: 500; }
-  #setup button { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #setup button:focus-visible, .custom:focus-within, .filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #setup button, #setup .filebtn { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #setup .small { padding: 3px 10px; font-size: 13px; }
   #setup button.primary { background: var(--accent); color: #07140c; border-color: transparent; font-weight: 700; }
   #setup button:disabled { opacity: .4; cursor: default; }
-  #wizard { border: 1px solid #33363c; border-radius: 8px; padding: 12px 14px; margin: 10px 0; background: #15161a; }
-  #prompt { font-size: 20px; font-weight: 700; margin: 4px 0; }
-  #hint { color: var(--dim); }
-  #holdbar { height: 8px; background: #2a2c31; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+  #prompt { font-size: 19px; font-weight: 700; margin: 4px 0 2px; }
+  #holdbar { height: 6px; background: #2a2c31; border-radius: 3px; overflow: hidden; margin: 10px 0 6px; }
   #holdbar div { height: 100%; width: 0; background: var(--accent); }
   #warn { color: var(--warn); min-height: 1.3em; }
-  #found { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  #found { font-size: 12px; margin-bottom: 8px; }
+  .warn { color: var(--warn); }
   table { border-collapse: collapse; width: 100%; }
-  td, th { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid #23252a; font-variant-numeric: tabular-nums; }
-  th { color: var(--dim); font-weight: 500; }
-  td.warn { color: var(--warn); }
-  .mini { display: inline-block; width: 120px; height: 8px; background: #2a2c31; position: relative; vertical-align: middle; border-radius: 2px; }
+  td { text-align: left; padding: 4px 10px 4px 0; border-top: 1px solid #23252a; font-variant-numeric: tabular-nums; }
+  td:last-child { padding-right: 0; white-space: nowrap; }
+  .mini { display: inline-block; width: 120px; height: 8px; background: #2a2c31; position: relative; vertical-align: middle; border-radius: 2px; margin-right: 6px; }
   .mini i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
   /* a narrow settings column: the table's text wraps and the value bars shrink, so it never runs off the side */
-  @container (max-width: 520px) { table { font-size: 12px; } td, th { padding-right: 6px; } .mini { width: 48px; } }
-  @container (max-width: 300px) { table { font-size: 11px; } }
+  @container (max-width: 420px) { table { font-size: 12px; } td { padding-right: 6px; } .mini { width: 48px; } }
+  /* and the labels go above their controls */
+  @container (max-width: 360px) { .form { grid-template-columns: minmax(0, 1fr); gap: 4px; } .ctl { margin-bottom: 8px; } }
 </style>
 </head>
 <body>
@@ -226,59 +234,73 @@
 </svg>
 
 <div id="setup">
-  <div class="devrow">
-    <div><b id="devName">-</b> <span id="devLayout" style="color:var(--dim)"></span></div>
-  </div>
-  <h2>Look</h2>
-  <div class="look">
-    <div class="lookrow">
-      <span class="looklabel">Accent colour</span>
-      <div class="swatches" id="swatches" role="group" aria-label="Preset colours"></div>
-      <label class="custom" title="Pick any colour">
-        <input type="color" id="accentPick" data-test="accent-picker" value="#39ff88" aria-label="Pick any colour">
-        <span id="accentHex">#39ff88</span>
-      </label>
-      <button id="accentReset" data-test="accent-reset" disabled>Default</button>
+  <header class="status">
+    <span id="devDot" class="dot"></span>
+    <b id="devName">-</b>
+    <span class="obs" title="In OBS, add a Browser source with this URL and size">
+      <span class="hint">OBS</span> <code id="obsUrl"></code> <b id="obsSize" data-test="obs-size">680 &times; 830</b>
+      <button id="copyUrl" class="small">Copy URL</button>
+    </span>
+  </header>
+
+  <section class="card">
+    <h2>Look</h2>
+    <div class="form">
+      <span class="label">Accent</span>
+      <div class="ctl">
+        <div class="swatches" id="swatches" role="group" aria-label="Preset colours"></div>
+        <label class="custom" title="Any colour">
+          <input type="color" id="accentPick" data-test="accent-picker" value="#39ff88" aria-label="Any colour">
+          <span id="accentHex">#39ff88</span>
+        </label>
+        <button id="accentReset" data-test="accent-reset" class="small" disabled hidden>Reset</button>
+      </div>
+
+      <span class="label">Skin</span>
+      <div class="ctl">
+        <select id="skinSel" data-test="skin-select" aria-label="Skin"><option value="">None</option></select>
+        <label class="filebtn" title="Any PNG; it's cropped to the radio's shape">Upload PNG <input type="file" id="skinFile" accept="image/png" hidden></label>
+        <button id="skinRemove" disabled hidden>Delete</button>
+        <span id="skinMsg" class="hint"></span>
+      </div>
+
+      <span class="label">Readout</span>
+      <div class="ctl">
+        <label class="toggle"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" aria-label="Show the stick readout" checked></label>
+        <select id="modeSel" data-test="mode-select" aria-label="Stick mode" title="Stick mode, for the readout's labels">
+          <option value="1">Mode 1 (throttle right)</option>
+          <option value="2">Mode 2 (throttle left)</option>
+          <option value="3">Mode 3 (throttle right)</option>
+          <option value="4">Mode 4 (throttle left)</option>
+        </select>
+      </div>
+
+      <span class="label">Channel bars</span>
+      <div class="ctl">
+        <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" aria-label="Show the channel bars" checked></label>
+      </div>
     </div>
-    <p class="hint">Lights, glows, bars and value ticks use this colour. OBS updates as you pick.</p>
-    <div class="lookrow">
-      <span class="looklabel">Under the radio</span>
-      <label class="toggle"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" checked> Stick readout</label>
-      <select id="modeSel" data-test="mode-select" aria-label="Stick mode" title="Stick mode: which stick is throttle. Names the values in the readout.">
-        <option value="1">Mode 1 (throttle right)</option>
-        <option value="2">Mode 2 (throttle left)</option>
-        <option value="3">Mode 3 (throttle right)</option>
-        <option value="4">Mode 4 (throttle left)</option>
-      </select>
-      <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" checked> Channel bars</label>
+  </section>
+
+  <section class="card" id="wizard">
+    <div class="cardhead">
+      <h2 id="step">Channels</h2>
+      <span class="actions">
+        <span id="why" class="hint"></span>
+        <button id="bStart" class="primary small">Detect channels</button>
+        <button id="bSkip" class="small" title="Skip (S)" disabled hidden>Skip</button>
+        <button id="bCancel" class="small" title="Cancel (Esc)" disabled hidden>Cancel</button>
+      </span>
     </div>
-    <p class="hint">The stick mode names the readout's values (THR, RUD, ELE, AIL); the drawing always follows the radio.
-      Turn both off for just the controller. OBS source size: <b id="obsSize" data-test="obs-size">680 &times; 830</b></p>
-    <div class="lookrow">
-      <span class="looklabel">Skin</span>
-      <select id="skinSel" data-test="skin-select" aria-label="Skin"><option value="">Built-in drawing</option></select>
-      <label class="filebtn">Upload PNG&hellip; <input type="file" id="skinFile" accept="image/png" hidden></label>
-      <button id="skinRemove" disabled>Remove</button>
-      <span id="skinMsg" class="hint"></span>
+    <div id="task" hidden>
+      <div id="prompt"></div>
+      <div id="hint" class="hint"></div>
+      <div id="holdbar"><div></div></div>
+      <div id="warn"></div>
+      <div id="found" class="hint"></div>
     </div>
-    <p class="hint">Wrap the radio in your own image, like a vinyl skin: carbon fibre, camo, a pattern, your art. Any PNG works; it's cropped to the radio's shape and the buttons, sticks, switches and screen stay on top.</p>
-  </div>
-  <div id="wizard">
-    <div id="step" style="color:var(--dim)">Channel detection</div>
-    <div id="prompt">Move each control when asked; the overlay figures out which channel it is on.</div>
-    <div id="hint"></div>
-    <div id="holdbar"><div></div></div>
-    <div id="warn"></div>
-    <button id="bStart" class="primary">Detect channels</button>
-    <button id="bSkip" disabled>Skip (S)</button>
-    <button id="bCancel" disabled>Cancel (Esc)</button>
-    <div id="found"></div>
-  </div>
-  <h2>Mapping</h2>
-  <table>
-    <thead><tr><th>Control</th><th>Channel</th><th>Direction</th><th>Looks like</th><th>Value</th></tr></thead>
-    <tbody id="map"></tbody>
-  </table>
+    <table><tbody id="map"></tbody></table>
+  </section>
 </div>
 <div id="debug"></div>
 
@@ -649,16 +671,17 @@ function render(s) {
 const CONTROLS = [
   ["Left stick ↔", s => s.sticks.left_x], ["Left stick ↕", s => s.sticks.left_y],
   ["Right stick ↔", s => s.sticks.right_x], ["Right stick ↕", s => s.sticks.right_y],
-  ["SA (2-pos)", s => s.controls.SA, "switch2"], ["SB (3-pos)", s => s.controls.SB, "switch3"],
-  ["SC (3-pos)", s => s.controls.SC, "switch3"], ["SD (2-pos)", s => s.controls.SD, "switch2"],
-  ["SE (button)", s => s.controls.SE, "switch2"], ["S1 (pot)", s => s.controls.S1, "analog"],
+  ["SA", s => s.controls.SA, "switch2"], ["SB", s => s.controls.SB, "switch3"],
+  ["SC", s => s.controls.SC, "switch3"], ["SD", s => s.controls.SD, "switch2"],
+  ["SE", s => s.controls.SE, "switch2"], ["S1", s => s.controls.S1, "analog"],
 ];
-const KIND = { idle: "not moved yet", analog: "stick / pot", switch2: "2-pos switch", switch3: "3-pos switch" };
+const KIND = { analog: "a stick or pot", switch2: "a 2-position switch", switch3: "a 3-position switch" };
 const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", right_x: "Right ↔" };
 
-const PROMPT = $("prompt").textContent;
 function renderSetup(s) {
-  $("devName").textContent = s.connected ? s.name : "No radio connected";
+  $("devDot").className = "dot" + (s.demo ? " demo" : s.connected ? " on" : "");
+  $("devName").textContent = s.connected ? s.name : "No radio";
+  $("devName").title = s.layout || "";
   if (document.activeElement !== $("modeSel")) $("modeSel").value = String(s.mode);
   showAccentControls(accentPreview !== undefined ? accentPreview : s.accent || null);
   const parts = savedParts(s);
@@ -671,48 +694,54 @@ function renderSetup(s) {
     refreshSkins(s.skin);
   } else if (document.activeElement !== $("skinSel") && $("skinSel").value !== (s.skin || "")) {
     $("skinSel").value = s.skin || "";
-    $("skinRemove").disabled = !s.skin;
+    showSkinRemove();
   }
-  $("devLayout").textContent = s.layout ? `(${s.layout})` : "";
 
-  const rows = CONTROLS.map(([label, get, want]) => {
+  $("map").innerHTML = CONTROLS.map(([label, get, want]) => {
     const src = get(s);
-    if (!src) return `<tr><td>${label}</td><td>-</td><td></td><td></td><td></td></tr>`;
+    if (!src) return `<tr><td>${label}</td><td class="hint">not set</td><td></td></tr>`;
     const v = (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1);
     const kind = s.kinds[src.ch - 1];
     // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
-    const odd = want && kind && kind !== "idle" && kind !== want && !(want === "switch2" && kind === "switch3");
+    const odd = want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
     const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
-    return `<tr><td>${label}</td><td>CH${src.ch}</td><td>${src.invert ? "reversed" : "normal"}</td>` +
-      `<td class="${odd ? "warn" : ""}">${KIND[kind] ?? "-"}${odd ? " ⚠" : ""}</td>` +
-      `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span> ${pct(v)}%</td></tr>`;
-  });
-  $("map").innerHTML = rows.join("");
+    return `<tr><td>${label}</td><td>CH${src.ch}${src.invert ? ' <span class="hint">reversed</span>' : ""}` +
+      `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}</td>` +
+      `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span>${pct(v)}%</td></tr>`;
+  }).join("");
 
   const l = s.learn;
   const running = !!(l && l.target);
   // nothing to detect without a radio, and the demo moves every control at once
-  const why = s.demo ? "The demo moves every control by itself, so there's nothing to detect. Plug in the radio and run pocket-overlay without --demo."
-    : !s.connected ? "Connect the radio (USB Joystick (HID) on its screen) to detect its channels." : "";
+  const why = s.demo ? "Needs the real radio" : !s.connected ? "Connect the radio first" : "";
+  const done = l && !running ? (l.saved && l.saved.startsWith("Saved") ? "Saved" : l.saved || "") : "";
+  $("why").textContent = running ? "" : why || done;
+  $("bStart").hidden = running;
   $("bStart").disabled = running || !!why;
-  $("bSkip").disabled = !running;
-  $("bCancel").disabled = !running;
-  $("bStart").textContent = l && !l.target ? "Detect again" : "Detect channels";
+  $("bStart").textContent = done ? "Detect again" : "Detect channels";
+  $("bSkip").hidden = $("bCancel").hidden = $("bSkip").disabled = $("bCancel").disabled = !running;
+  $("task").hidden = !running;
+  $("step").textContent = running ? `Step ${l.step + 1} of ${l.total}` : "Channels";
   drawFocus(running ? l.target : null);
   $("root").dataset.learnTarget = running ? l.target : "";
-  if (!l) {
-    $("prompt").textContent = why || PROMPT;
-    return;
-  }
-  $("step").textContent = running ? `Step ${l.step + 1} of ${l.total}` : "Done";
-  $("prompt").textContent = running ? l.prompt : (l.saved || "Done");
+  if (!running) return;
+  $("prompt").textContent = l.prompt;
   $("hint").textContent = l.hint;
   $("holdbar").firstElementChild.style.width = `${Math.round(l.hold * 100)}%`;
-  $("warn").textContent = l.ambiguous ? "More than one channel is moving - move only the highlighted control."
-    : (running && l.candidate ? `Seeing CH${l.candidate}... keep holding` : "");
+  $("warn").textContent = l.ambiguous ? "More than one channel is moving"
+    : (l.candidate ? `CH${l.candidate}... keep holding` : "");
   $("found").textContent = l.found.map(f =>
-    `${LABEL[f.target] ?? f.target}: ${f.source ? `CH${f.source.ch}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("   ");
+    `${LABEL[f.target] ?? f.target}: ${f.source ? `CH${f.source.ch}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("  ·  ");
 }
+
+// what to paste into OBS
+const OBS_URL = `http://127.0.0.1:${location.port || 80}/`;
+$("obsUrl").textContent = OBS_URL;
+$("copyUrl").onclick = async () => {
+  const b = $("copyUrl");
+  b.textContent = await navigator.clipboard.writeText(OBS_URL).then(() => "Copied", () => "Select and copy it");
+  setTimeout(() => (b.textContent = "Copy URL"), 1500);
+};
 
 let socket = null;
 const send = (cmd, extra = {}) => socket && socket.readyState === 1 && socket.send(JSON.stringify({ cmd, ...extra }));
@@ -756,7 +785,7 @@ function showAccentControls(colour) {
   $("accentHex").textContent = c;
   if (document.activeElement !== $("accentPick")) $("accentPick").value = c;
   for (const b of $("swatches").children) b.setAttribute("aria-pressed", String(b.dataset.colour === c));
-  $("accentReset").disabled = !colour;
+  $("accentReset").disabled = $("accentReset").hidden = !colour;
 }
 $("accentPick").oninput = e => chooseAccent(e.target.value, true);
 $("accentPick").onchange = e => chooseAccent(e.target.value);
@@ -795,20 +824,29 @@ function applySkin(name, rev) {
 async function refreshSkins(selected) {
   const names = await fetch("/skins").then(r => r.json()).catch(() => []);
   const sel = $("skinSel");
-  sel.replaceChildren(new Option("Built-in drawing", ""), ...names.map(n => new Option(n, n)));
+  sel.replaceChildren(new Option("None", ""), ...names.map(n => new Option(n, n)));
   sel.value = names.includes(selected) ? selected : "";
-  $("skinRemove").disabled = !sel.value;
+  showSkinRemove();
+}
+function showSkinRemove() {
+  $("skinRemove").disabled = $("skinRemove").hidden = !$("skinSel").value;
+}
+let skinMsgTimer;
+function skinMsg(text) {
+  $("skinMsg").textContent = text;
+  clearTimeout(skinMsgTimer);
+  skinMsgTimer = setTimeout(() => ($("skinMsg").textContent = ""), 4000);
 }
 $("skinSel").onchange = e => {
   send("set_skin", { skin: e.target.value || null });
-  $("skinRemove").disabled = !e.target.value;
+  showSkinRemove();
 };
 $("skinFile").onchange = async e => {
   const file = e.target.files[0];
   if (!file) return;
   const name = file.name.replace(/\.png$/i, "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "skin";
   const r = await fetch(`/skins/${name}`, { method: "PUT", headers: { "Content-Type": "image/png" }, body: file });
-  $("skinMsg").textContent = r.ok ? `Uploaded "${name}".` : await r.text();
+  skinMsg(r.ok ? "Uploaded" : await r.text());
   if (r.ok) send("set_skin", { skin: name });
   e.target.value = "";
 };
@@ -816,7 +854,7 @@ $("skinRemove").onclick = async () => {
   const name = $("skinSel").value;
   if (!name) return;
   const r = await fetch(`/skins/${name}`, { method: "DELETE" });
-  $("skinMsg").textContent = r.ok ? `Removed "${name}".` : await r.text();
+  skinMsg(r.ok ? "Deleted" : await r.text());
 };
 
 $("bStart").onclick = () => send("learn_start");

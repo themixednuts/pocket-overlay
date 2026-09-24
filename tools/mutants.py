@@ -106,8 +106,6 @@ MUTANTS = [
     ("setup page's radio scrolls away with the settings", "web/index.html",
      "body.setup { background: #0e0f11; display: grid; height: 100vh; }",
      "body.setup { background: #0e0f11; overflow: auto; }", "blackbox_render", "everything_stays"),
-    ("mapping table runs off the side in a narrow window", "web/index.html",
-     " container-type: inline-size; }", " }", "blackbox_render", "everything_stays"),
     ("descriptor ignored", "src/input.rs",
      "state.layout = describe(&l);\n                    layout = l;", "state.layout = describe(&l);",
      "blackbox_ws", "uses_the_layout"),

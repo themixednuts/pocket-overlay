@@ -700,8 +700,10 @@ fn setup_page_runs_the_wizard() {
         "done",
         "document.getElementById('bStart').textContent === 'Detect again'",
     );
-    let prompt = page.eval("document.getElementById('prompt').textContent");
-    assert!(prompt.as_str().unwrap().starts_with("Saved to"), "{prompt}");
+    assert_eq!(
+        page.eval("document.getElementById('why').textContent"),
+        "Saved"
+    );
     assert!(
         ov.config_text().contains("[sticks.left_y]\nch = 3"),
         "{}",
@@ -1389,7 +1391,7 @@ fn channel_detection_says_why_it_cant_start() {
         page.wait_until(
             says,
             &format!(
-                "document.getElementById('bStart').disabled === {} && document.getElementById('prompt').textContent.includes({says:?})",
+                "document.getElementById('bStart').disabled === {} && document.getElementById('why').textContent === {says:?}",
                 !can
             ),
         );
@@ -1399,14 +1401,14 @@ fn channel_detection_says_why_it_cant_start() {
     let Some(page) = Page::open(&demo, "?setup=1") else {
         return;
     };
-    can_start(&page, false, "The demo moves every control");
+    can_start(&page, false, "Needs the real radio");
 
     // no radio yet, then plugged in
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?setup=1") else {
         return;
     };
-    can_start(&page, false, "Connect the radio");
+    can_start(&page, false, "Connect the radio first");
     show(&mut ov, &page, &Radio::default());
-    can_start(&page, true, "Move each control when asked");
+    can_start(&page, true, "");
 }
