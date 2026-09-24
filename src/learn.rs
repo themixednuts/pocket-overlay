@@ -68,8 +68,9 @@ impl Target {
         }
     }
 
-    /// Sticks, 3-position switches and the pot need a full-resolution (analog) channel.
-    pub fn needs_analog(self) -> bool {
+    /// Sticks, 3-position switches and the pot have more than two positions, which only
+    /// CH1-8 (analog over USB) carry. On CH9-32 they show just two.
+    pub fn prefers_analog(self) -> bool {
         !matches!(self, Target::SA | Target::SD | Target::SE)
     }
 }
@@ -194,22 +195,12 @@ impl Learner {
             *r = (r.0.min(v), r.1.max(v));
         }
 
+        // A control mixed to both kinds of channel is read from the analog one; an on/off
+        // channel only counts for it when no analog channel moved.
         let axes = report.axes.len();
-        let mut best: Option<(usize, i32)> = None;
-        let mut second = 0;
-        for (i, (lo, hi)) in self.ranges.iter().enumerate() {
-            let ch = i + 1;
-            if self.taken(ch) || (target.needs_analog() && ch > axes) {
-                continue;
-            }
-            let range = i32::from(*hi) - i32::from(*lo);
-            match best {
-                Some((_, b)) if range <= b => second = second.max(range),
-                _ => {
-                    second = second.max(best.map_or(0, |b| b.1));
-                    best = Some((ch, range));
-                }
-            }
+        let (mut best, mut second) = self.busiest(|ch| !target.prefers_analog() || ch <= axes);
+        if target.prefers_analog() && best.is_none_or(|(_, range)| range < MIN_RANGE) {
+            (best, second) = self.busiest(|_| true);
         }
 
         let Some((ch, range)) = best else {
@@ -234,6 +225,28 @@ impl Learner {
             }
             _ => self.hold = Some((ch, v, now_ms)),
         }
+    }
+
+    /// Among the free channels `allowed` lets through: the one that moved most this step
+    /// with its range, and the runner-up's range.
+    fn busiest(&self, allowed: impl Fn(usize) -> bool) -> (Option<(usize, i32)>, i32) {
+        let mut best: Option<(usize, i32)> = None;
+        let mut second = 0;
+        for (i, (lo, hi)) in self.ranges.iter().enumerate() {
+            let ch = i + 1;
+            if self.taken(ch) || !allowed(ch) {
+                continue;
+            }
+            let range = i32::from(*hi) - i32::from(*lo);
+            match best {
+                Some((_, b)) if range <= b => second = second.max(range),
+                _ => {
+                    second = second.max(best.map_or(0, |b| b.1));
+                    best = Some((ch, range));
+                }
+            }
+        }
+        (best, second)
     }
 
     pub fn status(&self) -> LearnStatus {
@@ -324,12 +337,29 @@ mod tests {
     }
 
     #[test]
-    fn analog_targets_ignore_button_channels() {
+    fn three_position_switch_on_a_button_channel() {
         let mut l = Learner::new(vec![Target::SB]);
         let mut t = 0;
         l.update(t, &report(&[0], &[false]));
         hold(&mut l, &mut t, &report(&[0], &[true]));
-        assert!(!l.is_done(), "a button can't be a 3-position switch");
+        assert_eq!(
+            l.found()[0].source,
+            Some(Source {
+                ch: 2,
+                invert: false
+            })
+        );
+    }
+
+    #[test]
+    fn analog_channel_wins_over_a_button_moving_with_it() {
+        // SB mixed to CH1 and to a button: not ambiguous, CH1 has every position
+        let mut l = Learner::new(vec![Target::SB]);
+        let mut t = 0;
+        l.update(t, &report(&[0], &[false]));
+        hold(&mut l, &mut t, &report(&[1024], &[true]));
+        assert!(!l.status().ambiguous);
+        assert_eq!(l.found()[0].source.map(|s| s.ch), Some(1));
     }
 
     #[test]

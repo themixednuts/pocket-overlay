@@ -214,35 +214,27 @@ impl Config {
         {
             bail!("accent {accent:?}: use a colour like \"#39ff88\"");
         }
-        let max = edgetx::AXES + edgetx::BUTTONS;
-        let s = &self.sticks;
-        for (name, src) in [
-            ("sticks.left_x", s.left_x),
-            ("sticks.left_y", s.left_y),
-            ("sticks.right_x", s.right_x),
-            ("sticks.right_y", s.right_y),
-        ] {
-            if !(1..=edgetx::AXES).contains(&src.ch) {
-                bail!("{name}: ch must be 1..=8 (only CH1-8 are analog over USB)");
-            }
-        }
-        let c = &self.controls;
-        // (name, source, needs an analog channel)
-        let controls = [
-            ("SA", c.sa, false),
-            ("SB", c.sb, true),
-            ("SC", c.sc, true),
-            ("SD", c.sd, false),
-            ("SE", c.se, false),
-            ("S1", c.s1, true),
+        // Any control can be on any channel: models get mixed every which way. On CH9-32
+        // (on/off over USB) a stick, SB, SC or S1 just shows two positions.
+        let max = edgetx::CHANNELS;
+        let (s, c) = (&self.sticks, &self.controls);
+        let sources = [
+            ("sticks.left_x", Some(s.left_x)),
+            ("sticks.left_y", Some(s.left_y)),
+            ("sticks.right_x", Some(s.right_x)),
+            ("sticks.right_y", Some(s.right_y)),
+            ("controls.SA", c.sa),
+            ("controls.SB", c.sb),
+            ("controls.SC", c.sc),
+            ("controls.SD", c.sd),
+            ("controls.SE", c.se),
+            ("controls.S1", c.s1),
         ];
-        for (name, src, analog) in controls {
-            let Some(src) = src else { continue };
-            if analog && !(1..=edgetx::AXES).contains(&src.ch) {
-                bail!("controls.{name} needs an analog channel: ch must be 1..=8");
-            }
-            if !(1..=max).contains(&src.ch) {
-                bail!("controls.{name}: ch must be 1..={max}");
+        for (name, src) in sources {
+            if let Some(src) = src
+                && !(1..=max).contains(&src.ch)
+            {
+                bail!("{name}: ch must be 1..={max}");
             }
         }
         Ok(())
@@ -253,8 +245,9 @@ const HEADER: &str = "\
 # pocket-overlay settings. You don't need to edit this: open
 # http://127.0.0.1:7878/?setup=1 and use Detect channels, which rewrites it.
 #
-# `ch` values are the channel numbers on your model's MIXES page. Over USB, CH1-8 are
-# analog and CH9-32 are on/off, so sticks, SB, SC and S1 need a channel in 1-8.
+# `ch` values are the channel numbers on your model's MIXES page (1-32). Over USB, CH1-8
+# carry every position and CH9-32 are on/off, so a stick, SB, SC or S1 on CH9-32 shows
+# only two positions.
 ";
 
 #[cfg(test)]
@@ -290,14 +283,38 @@ mod tests {
     fn bad_settings_are_rejected_with_the_reason() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("overlay.toml");
+        let mut no_ch = Config::default();
+        no_ch.controls.sb = ch(0);
+        let mut past_32 = Config::default();
+        past_32.sticks.left_x.ch = 33;
+        for (cfg, reason) in [
+            (no_ch, "controls.SB: ch must be 1..=32"),
+            (past_32, "sticks.left_x: ch must be 1..=32"),
+        ] {
+            cfg.save(&path).unwrap();
+            let err = format!("{:#}", Config::load_or_create(&path).unwrap_err());
+            assert!(err.contains(reason), "{err}");
+        }
+    }
+
+    #[test]
+    fn any_control_can_be_on_an_on_off_channel() {
+        // sticks on CH1-4, every switch and the pot on CH9-32, as some models are mixed
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay.toml");
         let mut cfg = Config::default();
-        cfg.controls.sb = Some(Source {
-            ch: 12,
-            invert: false,
-        });
+        let c = &mut cfg.controls;
+        for (i, slot) in [
+            &mut c.sa, &mut c.sb, &mut c.sc, &mut c.sd, &mut c.se, &mut c.s1,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            *slot = ch(9 + i);
+        }
+        cfg.sticks.right_y.ch = 32;
         cfg.save(&path).unwrap();
-        let err = format!("{:#}", Config::load_or_create(&path).unwrap_err());
-        assert!(err.contains("SB needs an analog channel"), "{err}");
+        assert_eq!(Config::load_or_create(&path).unwrap(), cfg);
     }
 
     #[test]

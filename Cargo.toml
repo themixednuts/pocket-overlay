@@ -1,6 +1,6 @@
 [package]
 name = "pocket-overlay"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "OBS overlay showing a RadioMaster Pocket's sticks and switches live, read over USB"
 

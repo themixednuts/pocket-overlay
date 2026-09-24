@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use common::ws::Ws;
 use common::{Overlay, Radio, Rng, Wiring, expected_channels, to_hex};
+use pocket_overlay::config::Source;
 use pocket_overlay::learn::Target;
 use serde_json::{Value, json};
 
@@ -702,26 +703,32 @@ fn target_of(state: &Value) -> Option<Target> {
     parse_target(&state["learn"]["target"])
 }
 
-async fn learn_random_wiring(seed: u64) {
-    let mut ov = Overlay::start();
-    let mut rng = Rng(seed);
-    ov.wiring = Wiring::random(&mut rng);
-    eprintln!("seed {seed}: wiring {:?}", ov.wiring);
-    let mut ws = Ws::connect(ov.port).await;
+/// What the wizard found for `target` (`null` if skipped).
+fn found_for(state: &Value, target: Target) -> Value {
+    state["learn"]["found"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| parse_target(&f["target"]) == Some(target))
+        .unwrap()["source"]
+        .clone()
+}
 
+/// Runs the whole wizard, doing what each step asks, and returns the final state.
+async fn run_wizard(ov: &mut Overlay, ws: &mut Ws) -> Value {
     // at rest: throttle low, switches away from the pilot, S1 at one end
     let mut radio = Radio {
         left_y: -1.0,
         s1: -1.0,
         ..Radio::default()
     };
-    show(&mut ov, &mut ws, &radio).await;
+    show(ov, ws, &radio).await;
 
     ws.command("learn_start").await;
     let mut state = ws.wait_for("wizard start", |s| !s["learn"].is_null()).await;
     while let Some(target) = target_of(&state) {
         let step = state["learn"]["step"].as_u64().unwrap();
-        act(&mut ov, &mut radio, target).await;
+        act(ov, &mut radio, target).await;
         state = ws
             .wait_for(&format!("{target:?} to be detected"), |s| {
                 s["learn"]["step"].as_u64() != Some(step)
@@ -737,24 +744,29 @@ async fn learn_random_wiring(seed: u64) {
             .starts_with("Saved"),
         "{state:#}"
     );
-
-    // what it found is exactly how the radio is wired...
+    // what it found is exactly how the radio is wired
     for target in Target::ALL {
         let src = ov.wiring.get(target).unwrap();
-        let found = state["learn"]["found"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| parse_target(&f["target"]) == Some(target))
-            .unwrap();
-        assert_eq!(found["source"]["ch"], json!(src.ch), "{target:?} channel");
+        let found = found_for(&state, target);
+        assert_eq!(found["ch"], json!(src.ch), "{target:?} channel");
         assert_eq!(
-            found["source"]["invert"].as_bool().unwrap_or(false),
+            found["invert"].as_bool().unwrap_or(false),
             src.invert,
             "{target:?} direction"
         );
     }
-    // ...it was written to the config file...
+    state
+}
+
+async fn learn_random_wiring(seed: u64) {
+    let mut ov = Overlay::start();
+    let mut rng = Rng(seed);
+    ov.wiring = Wiring::random(&mut rng);
+    eprintln!("seed {seed}: wiring {:?}", ov.wiring);
+    let mut ws = Ws::connect(ov.port).await;
+
+    run_wizard(&mut ov, &mut ws).await;
+    // what it found was written to the config file...
     let saved: toml::Value = toml::from_str(&ov.config_text()).unwrap();
     assert_eq!(
         saved["sticks"]["left_y"]["ch"].as_integer().unwrap() as usize,
@@ -790,13 +802,56 @@ async fn wizard_learns_random_wiring_3() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn wizard_refuses_on_off_channel_for_three_position_switch() {
+async fn wizard_takes_on_off_channels_for_every_control() {
     let mut ov = Overlay::start();
-    // SB mixed to CH12, which USB can only send as on/off: its middle position would be lost.
-    ov.wiring.0.retain(|(t, _)| *t != Target::SB);
+    // Sticks on CH1-4, CH5-8 unused, every switch and the pot on CH9 and up (on/off over
+    // USB), some of them reversed.
+    let s = |ch, invert| Source { ch, invert };
+    ov.wiring = Wiring(vec![
+        (Target::RightX, s(1, false)),
+        (Target::RightY, s(2, false)),
+        (Target::LeftY, s(3, false)),
+        (Target::LeftX, s(4, false)),
+        (Target::SA, s(9, false)),
+        (Target::SB, s(10, false)),
+        (Target::SC, s(11, true)),
+        (Target::SD, s(12, false)),
+        (Target::SE, s(13, false)),
+        (Target::S1, s(14, true)),
+    ]);
+    let mut ws = Ws::connect(ov.port).await;
+    run_wizard(&mut ov, &mut ws).await;
+    let saved: toml::Value = toml::from_str(&ov.config_text()).unwrap();
+    assert_eq!(saved["controls"]["SB"]["ch"].as_integer(), Some(10));
+    assert_eq!(saved["controls"]["S1"]["ch"].as_integer(), Some(14));
+    ws.command("learn_close").await;
+
+    // The ends read right. The middle is "off", so it reads like the end that's off.
+    let at = |sb, sc, s1| Radio {
+        sb,
+        sc,
+        s1,
+        ..Radio::default()
+    };
+    for (radio, want) in [
+        (at(0, 0, -1.0), (0, 0, -1.0)),
+        (at(2, 2, 1.0), (2, 2, 1.0)),
+        (at(1, 1, -0.4), (0, 2, -1.0)),
+        (at(1, 1, 0.3), (0, 2, 1.0)),
+    ] {
+        let state = show(&mut ov, &mut ws, &radio).await;
+        let got = (&state["sb"], &state["sc"], state["s1"].as_f64().unwrap());
+        assert_eq!(got, (&json!(want.0), &json!(want.1), want.2), "{radio:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wizard_reads_a_switch_on_both_kinds_of_channel_from_the_analog_one() {
+    let mut ov = Overlay::start();
+    // SB mixed to CH6 as usual and to CH12 too (on/off, e.g. a button for a game)
     ov.wiring.0.push((
         Target::SB,
-        pocket_overlay::config::Source {
+        Source {
             ch: 12,
             invert: false,
         },
@@ -815,25 +870,10 @@ async fn wizard_refuses_on_off_channel_for_three_position_switch() {
             .await;
     }
     act(&mut ov, &mut radio, Target::SB).await;
-    tokio::time::sleep(Duration::from_millis(900)).await; // well past the hold time
-    let state = ws.wait_for("latest", |_| true).await;
-    assert_eq!(
-        target_of(&state),
-        Some(Target::SB),
-        "must not accept CH12 for SB\n{state:#}"
-    );
-
-    ws.command("learn_skip").await;
     let state = ws
-        .wait_for("SB skipped", |s| target_of(s) == Some(Target::SC))
+        .wait_for("SB detected", |s| target_of(s) == Some(Target::SC))
         .await;
-    let sb = state["learn"]["found"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| parse_target(&f["target"]) == Some(Target::SB))
-        .unwrap();
-    assert_eq!(sb["source"], Value::Null);
+    assert_eq!(found_for(&state, Target::SB)["ch"], json!(6), "{state:#}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

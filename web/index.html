@@ -702,10 +702,13 @@ function renderSetup(s) {
     if (!src) return `<tr><td>${label}</td><td class="hint">not set</td><td></td></tr>`;
     const v = (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1);
     const kind = s.kinds[src.ch - 1];
+    // CH9-32 are on/off over USB: fine for a 2-position switch, two positions for the rest.
+    const onOff = src.ch > 8 && want !== "switch2";
     // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
-    const odd = want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
+    const odd = !onOff && want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
     const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
     return `<tr><td>${label}</td><td>CH${src.ch}${src.invert ? ' <span class="hint">reversed</span>' : ""}` +
+      `${onOff ? ' <span class="hint" title="CH9-32 are on/off over USB, so this shows two positions">on/off</span>' : ""}` +
       `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}</td>` +
       `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span>${pct(v)}%</td></tr>`;
   }).join("");

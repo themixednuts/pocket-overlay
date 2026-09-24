@@ -323,7 +323,7 @@ impl Wiring {
         rng.shuffle(&mut analog);
         let mut wiring = Vec::new();
         for t in pocket_overlay::learn::Target::ALL {
-            if t.needs_analog() {
+            if t.prefers_analog() {
                 let ch = analog.pop().unwrap();
                 wiring.push((
                     t,

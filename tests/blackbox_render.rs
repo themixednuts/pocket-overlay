@@ -760,6 +760,55 @@ fn setup_page_runs_the_wizard() {
     }
 }
 
+#[test]
+fn setup_page_says_on_off_instead_of_warning() {
+    use pocket_overlay::{config::Source, learn::Target};
+    let _slot = browser_slot();
+    // SB on CH12, which is on/off over USB; SC set to the right stick's channel by mistake
+    let mut cfg = pocket_overlay::config::Config::default();
+    cfg.controls.sb.as_mut().unwrap().ch = 12;
+    cfg.controls.sc.as_mut().unwrap().ch = 1;
+    let mut ov = Overlay::start_with(Some(&toml::to_string(&cfg).unwrap()));
+    ov.wiring.0.retain(|(t, _)| *t != Target::SB);
+    ov.wiring.0.push((
+        Target::SB,
+        Source {
+            ch: 12,
+            invert: false,
+        },
+    ));
+    let Some(page) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    // move both, so the page sees how each channel behaves
+    for (sb, right_x) in [(0, -1.0), (2, -0.6), (0, -0.2), (2, 0.3), (0, 0.8)] {
+        let radio = Radio {
+            sb,
+            right_x,
+            ..Radio::default()
+        };
+        show(&mut ov, &page, &radio);
+    }
+    let row = |control: &str| {
+        format!(
+            "[...document.querySelectorAll('#map tr')].find(r => r.cells[0].textContent === '{control}')"
+        )
+    };
+    page.wait_until(
+        "the SC warning",
+        &format!("!!{}.querySelector('.warn')", row("SC")),
+    );
+    assert_eq!(
+        page.eval(&format!("{}.cells[1].textContent", row("SB"))),
+        "CH12 on/off"
+    );
+    assert_eq!(
+        page.eval(&format!("!!{}.querySelector('.warn')", row("SB"))),
+        Value::Bool(false),
+        "SB on an on/off channel is allowed, not a mistake"
+    );
+}
+
 /// Not a check: saves screenshots of named scenarios to target/tmp/gallery-*.png, for
 /// looking at. Run with `cargo test --test blackbox_render gallery -- --ignored`.
 #[test]
