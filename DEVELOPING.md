@@ -42,6 +42,16 @@ A skin is a PNG in `skins/` next to the settings file. It's scaled to cover the 
 
 The server listens on 127.0.0.1 only and answers only requests whose `Host` (and `Origin`, when a browser sends one) is `127.0.0.1:<port>` or `localhost:<port>`. That keeps other websites in the same browser from reaching it, including over the WebSocket, which isn't covered by the browser's cross-site rules.
 
+### OBS on another PC
+
+With the radio on a gaming PC and OBS on a streaming PC, the "Other PC" switch next to the OBS URL (`lan = true` in the settings) opens the port to the home network (`src/network.rs`). No tunnel is needed, since both PCs are behind the same router.
+
+- **Listening:** the server switches between 127.0.0.1 and every address (IPv6 and IPv4 on one socket) on the same port, without a restart. Open connections carry on.
+- **Addresses:** the URL for the other PC uses this PC's name with `.local` (`http://GAMING-PC.local:7878/`), so it survives a new IP address from the router; Windows, Macs, Linux and phones all find `.local` names, while the bare name only works between Windows PCs. The setup page shows the IP address too, for networks where the name isn't found.
+- **Watch only:** only connections from 127.0.0.1 can change anything (settings, detection, skins). Other PCs get the page and the live state. Their WebSocket commands are dropped, and other requests except reads get 403. Their pages are disconnected when the switch goes off, and a settings page opened from another PC shows just the overlay.
+- **Still no other websites:** besides 127.0.0.1/localhost, a request must be addressed to this PC's name (also `NAME.local`) or to the IP address it came in on, so a website pointing its own name at this PC (DNS rebinding) is refused.
+- **Firewall:** Windows asks once whether to allow the app when the switch is first turned on; allow it on private networks.
+
 Settings live in `%APPDATA%\pocket-overlay\overlay.toml` (Windows) or `~/.config/pocket-overlay/overlay.toml`. The setup page (`/?setup=1`) writes them; `--config <file>` points somewhere else.
 
 ## Command-line options
@@ -107,6 +117,7 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - Every overlay reads every report sent (compared byte for byte with its `--record` file), shows the last one, notices the unplug and comes back on its own.
   - Every game sees every report too. The kernel can split one report into several gamepad updates (it budgets about 16 events per update, a report can make about 56), so games may briefly see a mix of two reports; the overlay always gets whole reports.
   - Needs `/dev/uhid`: CI loads the module and installs the udev rule we ship. Elsewhere it prints `SKIPPED` and passes; `POCKET_UHID=1` makes that a failure.
+- **`network`**: another PC in the network, played by connections to this PC's own network address. Closed until switched on, open after, closed again (with open pages disconnected); other PCs see the radio live but their commands, uploads and deletes are refused; this PC's name works and other names and websites don't; the address for other PCs is printed at start. `blackbox_render` checks the setup page's switch and URLs, and that the page opened from another PC has no settings and goes offline when sharing stops. Skipped without a network address.
 - **`skins`**: uploads, lists, chooses and removes skins over HTTP and the WebSocket; rejects path-traversal names, non-PNGs and oversized files; refuses requests and WebSocket connections from other websites. `blackbox_render` checks a skin wraps the body inside the outline with every detail on top, and that `?skin=none` and a misspelt skin fall back to the drawing.
 - **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, a gimbal that slides instead of tilting, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 

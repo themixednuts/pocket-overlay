@@ -37,6 +37,9 @@ pub struct OverlayState {
     /// Which parts show under the radio.
     pub show_readout: bool,
     pub show_channels: bool,
+    /// Other PCs in the home network may show the overlay, and why that failed if it did.
+    pub lan: bool,
+    pub lan_error: Option<String>,
     /// Running `--demo`: there's no radio, so no channels to detect.
     pub demo: bool,
     /// Current channel assignments, for the setup view.
@@ -95,6 +98,8 @@ pub fn map(
         accent: cfg.accent.clone(),
         show_readout: cfg.show_readout,
         show_channels: cfg.show_channels,
+        lan: cfg.lan,
+        lan_error: None,
         demo: raw.demo,
         sticks: cfg.sticks.clone(),
         controls: cfg.controls.clone(),

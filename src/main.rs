@@ -8,7 +8,7 @@ use pocket_overlay::config::Config;
 use pocket_overlay::detect::{ChannelKind, Detector};
 use pocket_overlay::engine::Engine;
 use pocket_overlay::input::{self, RawState};
-use pocket_overlay::server;
+use pocket_overlay::{network, server};
 
 const USAGE: &str = "\
 pocket-overlay - OBS overlay for the RadioMaster Pocket (EdgeTX USB joystick)
@@ -123,7 +123,7 @@ async fn run() -> Result<()> {
     }
 
     let port = args.port.unwrap_or(cfg.port);
-    let (listener, addr) = match server::bind(port).await {
+    let listener = match network::listen(port, cfg.lan).await {
         Ok(bound) => bound,
         // Running it again is how people get the settings page back.
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && already_running(port) => {
@@ -136,8 +136,10 @@ async fn run() -> Result<()> {
         // Another program has the saved port: take any free one and keep it, so the OBS URL
         // stays the same from now on. The settings page shows the new URL.
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && args.port.is_none() => {
-            let bound = server::bind(0).await.context("starting the web server")?;
-            cfg.port = bound.1.port();
+            let bound = network::listen(0, cfg.lan)
+                .await
+                .context("starting the web server")?;
+            cfg.port = bound.local_addr()?.port();
             cfg.save(&args.config).context("saving the new port")?;
             eprintln!(
                 "Port {port} is used by another program, so this now uses port {} \
@@ -151,13 +153,17 @@ async fn run() -> Result<()> {
         }
         Err(e) => return Err(e).context("starting the web server"),
     };
+    let port = listener.local_addr()?.port();
     let (width, height) = cfg.obs_source_size();
     // The black-box tests read the port from the first URL printed here.
     eprintln!(
         "Pocket overlay is running. Keep this window open while you stream; close it to stop."
     );
-    eprintln!("  Settings:            http://{addr}/?setup=1");
-    eprintln!("  OBS Browser Source:  http://{addr}/   ({width} x {height})");
+    eprintln!("  Settings:            http://127.0.0.1:{port}/?setup=1");
+    eprintln!("  OBS Browser Source:  http://127.0.0.1:{port}/   ({width} x {height})");
+    if cfg.lan {
+        server::print_lan_urls(port);
+    }
 
     let engine = Engine::new(cfg.clone(), args.config.clone());
     let (state_tx, state_rx) = watch::channel(engine.state());
@@ -167,7 +173,7 @@ async fn run() -> Result<()> {
 
     let skins = pocket_overlay::skins::Skins::beside(&args.config);
     if args.browser {
-        open_settings(addr.port());
+        open_settings(port);
     }
     server::serve(listener, state_rx, cmd_tx, skins).await?;
     Ok(())

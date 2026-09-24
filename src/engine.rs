@@ -41,6 +41,13 @@ pub enum Command {
         readout: bool,
         channels: bool,
     },
+    /// `{"cmd":"set_lan","on":true}`: let OBS on other PCs in the network show the overlay.
+    SetLan {
+        on: bool,
+    },
+    /// From the server: the port couldn't be opened to other PCs, with the reason.
+    #[serde(skip)]
+    LanFailed(String),
 }
 
 const TICK: Duration = Duration::from_millis(50);
@@ -55,6 +62,7 @@ pub struct Engine {
     raw: RawState,
     start: Instant,
     skin_rev: u32,
+    lan_error: Option<String>,
 }
 
 impl Engine {
@@ -68,6 +76,7 @@ impl Engine {
             raw: RawState::default(),
             start: Instant::now(),
             skin_rev: 0,
+            lan_error: None,
         }
     }
 
@@ -77,13 +86,15 @@ impl Engine {
             .as_ref()
             .map(Learner::status)
             .or_else(|| self.finished.clone());
-        overlay::map(
+        let mut state = overlay::map(
             &self.config,
             &self.raw,
             self.detector.kinds(),
             learn,
             self.skin_rev,
-        )
+        );
+        state.lan_error = self.lan_error.clone();
+        state
     }
 
     fn now_ms(&self) -> u64 {
@@ -161,6 +172,18 @@ impl Engine {
                     self.config.show_channels = channels;
                     self.save("what shows under the radio");
                 }
+            }
+            Command::SetLan { on } => {
+                self.lan_error = None;
+                if on != self.config.lan {
+                    self.config.lan = on;
+                    self.save("sharing with other PCs");
+                }
+            }
+            Command::LanFailed(reason) => {
+                self.lan_error = Some(reason);
+                self.config.lan = false;
+                self.save("sharing with other PCs");
             }
             Command::SetAccent { accent } => {
                 let accent = accent.map(|a| a.to_ascii_lowercase());

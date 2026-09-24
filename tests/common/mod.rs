@@ -593,7 +593,12 @@ pub mod ws {
 
     impl Ws {
         pub async fn connect(port: u16) -> Self {
-            let (stream, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
+            Self::connect_to(&format!("127.0.0.1:{port}")).await
+        }
+
+        /// Connects to `host:port` (another PC's view: this PC's network address).
+        pub async fn connect_to(host: &str) -> Self {
+            let (stream, _) = tokio_tungstenite::connect_async(format!("ws://{host}/ws"))
                 .await
                 .unwrap();
             let mut ws = Ws {
@@ -602,6 +607,18 @@ pub mod ws {
             };
             ws.next().await;
             ws
+        }
+
+        /// Waits (up to 8 s) for the server to close the connection.
+        pub async fn closed(&mut self) -> bool {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+            loop {
+                match tokio::time::timeout_at(deadline, self.stream.next()).await {
+                    Ok(Some(Ok(Message::Text(_) | Message::Ping(_) | Message::Pong(_)))) => {}
+                    Ok(_) => return true,
+                    Err(_) => return false,
+                }
+            }
         }
 
         async fn next(&mut self) -> &Value {
@@ -662,8 +679,8 @@ pub const RED_PNG: [u8; 70] = [
     0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
-/// Minimal HTTP/1.1 request; returns (status, headers, body). `host` overrides the Host
-/// header (for the "other website" tests).
+/// Minimal HTTP/1.1 request to 127.0.0.1; returns (status, headers, body). A `Host` in
+/// `extra_headers` overrides the default (for the "other website" tests).
 pub fn http(
     port: u16,
     method: &str,
@@ -671,8 +688,25 @@ pub fn http(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> (u16, String, Vec<u8>) {
+    http_at(
+        ([127, 0, 0, 1], port).into(),
+        method,
+        path,
+        extra_headers,
+        body,
+    )
+}
+
+/// The same, to any address (another PC's view: this PC's own network address).
+pub fn http_at(
+    addr: std::net::SocketAddr,
+    method: &str,
+    path: &str,
+    extra_headers: &[(&str, &str)],
+    body: &[u8],
+) -> (u16, String, Vec<u8>) {
     use std::io::Read;
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
     let mut req = format!(
         "{method} {path} HTTP/1.1\r\nConnection: close\r\nContent-Length: {}\r\n",
         body.len()
@@ -681,7 +715,7 @@ pub fn http(
         .iter()
         .any(|(k, _)| k.eq_ignore_ascii_case("host"))
     {
-        req.push_str(&format!("Host: 127.0.0.1:{port}\r\n"));
+        req.push_str(&format!("Host: {addr}\r\n"));
     }
     for (k, v) in extra_headers {
         req.push_str(&format!("{k}: {v}\r\n"));

@@ -5,6 +5,7 @@ pub mod engine;
 pub mod hid;
 pub mod input;
 pub mod learn;
+pub mod network;
 pub mod overlay;
 pub mod server;
 pub mod skins;

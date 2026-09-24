@@ -238,8 +238,11 @@
     <span id="devDot" class="dot"></span>
     <b id="devName">-</b>
     <span class="obs" title="In OBS, add a Browser source with this URL and size">
-      <span class="hint">OBS</span> <code id="obsUrl"></code> <b id="obsSize" data-test="obs-size">680 &times; 830</b>
+      <span class="hint">OBS</span> <code id="obsUrl" data-test="obs-url"></code> <b id="obsSize" data-test="obs-size">680 &times; 830</b>
       <button id="copyUrl" class="small">Copy URL</button>
+      <label class="toggle" title="Let OBS on another PC in this network show the overlay (it can only watch). Allow it if Windows asks.">
+        <input type="checkbox" role="switch" id="lanOn" data-test="lan-toggle">Other PC</label>
+      <span id="lanNote" class="hint" data-test="lan-note"></span>
     </span>
   </header>
 
@@ -307,7 +310,10 @@
 <script>
 const q = new URLSearchParams(window.OVERLAY_QUERY ?? location.search);
 if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.get("accent"));
-const SETUP = q.get("setup") === "1";
+// Opened from another PC in the network (OBS on a streaming PC): it can only watch, so no
+// settings there.
+const OTHER_PC = /^https?:$/.test(location.protocol) && !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+const SETUP = q.get("setup") === "1" && !OTHER_PC;
 const SIDES = q.get("sides") === "1";
 // ?readout=0/1 and ?channels=0/1 override the saved choice for one page
 const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels");
@@ -687,6 +693,7 @@ function barCell(v) {
 }
 
 function renderSetup(s) {
+  showObsUrl(s);
   $("devDot").className = "dot" + (s.demo ? " demo" : s.connected ? " on" : "");
   $("devName").textContent = s.connected ? s.name : "No radio";
   $("devName").title = s.layout || "";
@@ -745,12 +752,37 @@ function renderSetup(s) {
     `${LABEL[f.target] ?? f.target}: ${f.source ? `${chName(f.source)}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("  ·  ");
 }
 
-// what to paste into OBS
-const OBS_URL = `http://127.0.0.1:${location.port || 80}/`;
-$("obsUrl").textContent = OBS_URL;
+// What to paste into OBS: this PC's own address, or with "Other PC" on, its name in the
+// network (which works on this PC too), with its IP address in case the name isn't found.
+const PORT = location.port || 80;
+const urlFor = host => `http://${host.includes(":") ? `[${host}]` : host}:${PORT}/`;
+let obsUrl = urlFor("127.0.0.1");
+let network = null, networkFor = false; // this PC's {name, ip}, asked for when sharing starts
+let lanPending = null; // switched on the page, not yet confirmed by the server
+function showObsUrl(s) {
+  if (lanPending !== null && (s.lan === lanPending || s.lan_error)) lanPending = null;
+  $("lanOn").checked = lanPending ?? s.lan;
+  if (s.lan !== networkFor) {
+    networkFor = s.lan;
+    network = null;
+    if (s.lan) fetch("/network").then(r => r.json()).then(n => { network = n; dirty = true; }, () => {});
+  }
+  const name = s.lan && network?.name, ip = s.lan && network?.ip;
+  obsUrl = urlFor(name || ip || "127.0.0.1");
+  $("obsUrl").textContent = obsUrl;
+  const note = $("lanNote");
+  note.className = s.lan_error ? "warn" : "hint";
+  note.textContent = s.lan_error
+    || (name && ip ? `or ${urlFor(ip)}` : s.lan && network && !name && !ip ? "No network found" : "");
+}
+$("obsUrl").textContent = obsUrl;
+$("lanOn").onchange = e => {
+  lanPending = e.target.checked;
+  send("set_lan", { on: lanPending });
+};
 $("copyUrl").onclick = async () => {
   const b = $("copyUrl");
-  b.textContent = await navigator.clipboard.writeText(OBS_URL).then(() => "Copied", () => "Select and copy it");
+  b.textContent = await navigator.clipboard.writeText(obsUrl).then(() => "Copied", () => "Select and copy it");
   setTimeout(() => (b.textContent = "Copy URL"), 1500);
 };
 

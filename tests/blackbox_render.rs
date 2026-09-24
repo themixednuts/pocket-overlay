@@ -112,6 +112,11 @@ impl Page {
     }
 
     fn open_with(ov: &Overlay, query: &str, viewport: Option<(u32, u32)>) -> Option<Self> {
+        Self::open_url(&ov.url(query), viewport)
+    }
+
+    /// Opens any address (another PC's view: this PC's network address).
+    fn open_url(url: &str, viewport: Option<(u32, u32)>) -> Option<Self> {
         let path = browser_path()?;
         let opts = LaunchOptions::default_builder()
             .path(Some(path))
@@ -140,7 +145,7 @@ impl Page {
             page.resize(width, height);
         }
         page.tab
-            .navigate_to(&ov.url(query))
+            .navigate_to(url)
             .unwrap()
             .wait_until_navigated()
             .unwrap();
@@ -834,6 +839,71 @@ fn setup_page_shows_how_each_control_is_wired() {
         "S1 on an on/off channel is allowed, not a mistake"
     );
     assert_eq!(warns("SB"), Value::Bool(false));
+}
+
+#[test]
+fn obs_on_another_pc_shows_the_overlay() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(ip) = pocket_overlay::network::lan_ip() else {
+        eprintln!("SKIPPED: this PC has no network address");
+        return;
+    };
+    let Some(page) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    let port = ov.port;
+    let obs_url = "document.querySelector('[data-test=obs-url]').textContent";
+    let toggle = "document.querySelector('[data-test=lan-toggle]').click()";
+    assert_eq!(
+        page.eval(obs_url),
+        format!("http://127.0.0.1:{port}/").as_str()
+    );
+
+    // one switch next to the OBS address: it becomes this PC's name in the network
+    page.eval(toggle);
+    let name = pocket_overlay::network::address().name;
+    let want = format!("http://{}:{port}/", name.clone().unwrap_or(ip.to_string()));
+    page.wait_until(
+        "the address for the other PC",
+        &format!("{obs_url} === {want:?}"),
+    );
+    if name.is_some() {
+        let note = page.eval("document.querySelector('[data-test=lan-note]').textContent");
+        assert_eq!(note, format!("or http://{ip}:{port}/").as_str());
+    }
+    page.screenshot("setup-other-pc");
+
+    // OBS on the other PC: the overlay, live, and no settings even when asked for
+    let other = Page::open_url(
+        &format!("http://{ip}:{port}/?setup=1&trail=0"),
+        Some((680, 830)),
+    )
+    .unwrap();
+    show(
+        &mut ov,
+        &other,
+        &Radio {
+            left_y: 0.5,
+            se: true,
+            ..Radio::default()
+        },
+    );
+    assert_eq!(
+        other.eval("getComputedStyle(document.getElementById('setup')).display"),
+        "none"
+    );
+
+    // switched off: this PC's address again, and the other PC loses the overlay
+    page.eval(toggle);
+    page.wait_until(
+        "this PC's address",
+        &format!("{obs_url} === 'http://127.0.0.1:{port}/'"),
+    );
+    other.wait_until(
+        "the other PC to lose the overlay",
+        "document.getElementById('root').classList.contains('offline')",
+    );
 }
 
 /// Not a check: saves screenshots of named scenarios to target/tmp/gallery-*.png, for
