@@ -37,6 +37,8 @@ pub struct OverlayState {
     /// Which parts show under the radio.
     pub show_readout: bool,
     pub show_channels: bool,
+    /// Running `--demo`: there's no radio, so no channels to detect.
+    pub demo: bool,
     /// Current channel assignments, for the setup view.
     pub sticks: Sticks,
     pub controls: Controls,
@@ -87,6 +89,7 @@ pub fn map(
         accent: cfg.accent.clone(),
         show_readout: cfg.show_readout,
         show_channels: cfg.show_channels,
+        demo: raw.demo,
         sticks: cfg.sticks.clone(),
         controls: cfg.controls.clone(),
         learn,
@@ -150,6 +153,7 @@ mod tests {
             name: "r".into(),
             layout: String::new(),
             report,
+            demo: false,
         };
         let s = map(&Config::default(), &raw, vec![], None, 0);
         assert_eq!(s.left, Stick { x: -1.0, y: 1.0 });

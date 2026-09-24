@@ -835,6 +835,34 @@ async fn strip_under_the_radio_can_be_hidden() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn no_channel_detection_without_a_radio() {
+    // nothing plugged in yet
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["connected"], json!(false));
+    ws.command("learn_start").await;
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["learn"], Value::Null, "wizard started with no radio");
+    // once it's plugged in, it works
+    show(&mut ov, &mut ws, &Radio::default()).await;
+    ws.command("learn_start").await;
+    ws.wait_for("wizard", |s| !s["learn"].is_null()).await;
+
+    // the demo moves every control at once: there's nothing to detect
+    let demo = Overlay::launch(&["--demo"], None);
+    let mut ws = Ws::connect(demo.port).await;
+    let state = ws
+        .wait_for("demo running", |s| s["connected"] == json!(true))
+        .await;
+    assert_eq!(state["demo"], json!(true));
+    ws.command("learn_start").await;
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["learn"], Value::Null, "wizard started on the demo");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn wizard_skip_and_cancel() {
     let mut ov = Overlay::start();
     let mut ws = Ws::connect(ov.port).await;

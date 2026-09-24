@@ -24,6 +24,8 @@ pub struct RawState {
     /// Human-readable description of the report layout in use.
     pub layout: String,
     pub report: Report,
+    /// Made-up input from `--demo`: every control moves by itself.
+    pub demo: bool,
 }
 
 fn publish(tx: &watch::Sender<RawState>, next: RawState) {
@@ -319,6 +321,7 @@ fn read_until_error(
                 name: name.to_owned(),
                 layout: used.clone(),
                 report,
+                demo: false,
             },
         );
     }
@@ -505,6 +508,7 @@ pub fn run_demo(tx: watch::Sender<RawState>) {
                 name: "Demo radio".into(),
                 layout: describe(&layout),
                 report,
+                demo: true,
             },
         );
         std::thread::sleep(Duration::from_millis(16));

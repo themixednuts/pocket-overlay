@@ -104,9 +104,26 @@ impl Page {
                 Err(e) => panic!("browser didn't start: {e}"),
             }
         };
+        let page = Page {
+            _browser: browser,
+            tab,
+        };
         if let Some((width, height)) = viewport {
-            // the window size includes the browser's own frame; this is the page's
-            tab.call_method(Emulation::SetDeviceMetricsOverride {
+            page.resize(width, height);
+        }
+        page.tab
+            .navigate_to(&ov.url(query))
+            .unwrap()
+            .wait_until_navigated()
+            .unwrap();
+        Some(page)
+    }
+
+    /// Makes the page's viewport exactly this size (the window size includes the browser's
+    /// own frame), like resizing an OBS browser source or a desktop browser window.
+    fn resize(&self, width: u32, height: u32) {
+        self.tab
+            .call_method(Emulation::SetDeviceMetricsOverride {
                 width,
                 height,
                 device_scale_factor: 1.0,
@@ -123,15 +140,6 @@ impl Page {
                 device_posture: None,
             })
             .unwrap();
-        }
-        tab.navigate_to(&ov.url(query))
-            .unwrap()
-            .wait_until_navigated()
-            .unwrap();
-        Some(Page {
-            _browser: browser,
-            tab,
-        })
     }
 
     fn eval(&self, js: &str) -> Value {
@@ -1282,4 +1290,123 @@ fn the_strip_under_the_radio_can_be_turned_off() {
     hint_is("680 × 830");
     mode_usable(true);
     assert!(!ov.config_text().contains("show_"), "{}", ov.config_text());
+}
+
+/// Lists everything that's off screen with the page scrolled all the way down: the radio not
+/// fully in view, parts of it outside the viewport (or, on the setup page, outside the
+/// drawing's box), and setup-page content that makes it scroll sideways.
+const OFF_SCREEN: &str = r##"(() => {
+  const setup = document.getElementById("setup");
+  document.scrollingElement.scrollTop = 1e9;
+  setup.scrollTop = 1e9;
+  const W = innerWidth, H = innerHeight, svg = document.getElementById("root").getBoundingClientRect(), out = [];
+  const name = e => e.id || e.dataset.test || e.getAttribute("class") || e.tagName;
+  const at = b => [b.left, b.top, b.right, b.bottom].map(Math.round).join(",");
+  if (svg.left < -0.5 || svg.top < -0.5 || svg.right > W + 0.5 || svg.bottom > H + 0.5 || svg.width < 100 || svg.height < 100)
+    out.push(`radio at ${at(svg)}`);
+  for (const e of document.querySelectorAll("#root *")) {
+    if (!(e instanceof SVGGraphicsElement) || e.closest("defs,clipPath,mask,marker,pattern,filter")) continue;
+    const b = e.getBoundingClientRect();
+    if (!b.width || !b.height) continue; // hidden, or nothing to see
+    if (b.left < svg.left - 0.5 || b.right > svg.right + 0.5 || b.top < svg.top - 0.5 || b.bottom > svg.bottom + 0.5)
+      out.push(`${name(e)} at ${at(b)}`);
+  }
+  const box = setup.getBoundingClientRect();
+  if (document.documentElement.scrollWidth > W || setup.scrollWidth > setup.clientWidth + 1) {
+    for (const e of setup.querySelectorAll("*")) {
+      const b = e.getBoundingClientRect();
+      if (b.width && b.right > Math.min(W, box.left + setup.clientLeft + setup.clientWidth) + 0.5) out.push(`${name(e)} at ${at(b)}`);
+    }
+    out.push(`settings are ${setup.scrollWidth} wide in ${setup.clientWidth}`);
+  }
+  return JSON.stringify(out.slice(0, 20));
+})()"##;
+
+/// Window sizes people end up with: phones, a narrow browser, OBS sources of every shape.
+const SIZES: [(u32, u32); 10] = [
+    (320, 480),
+    (480, 320),
+    (360, 800),
+    (560, 420),
+    (680, 830),
+    (680, 400),
+    (1280, 300),
+    (1024, 600),
+    (1920, 1080),
+    (500, 1400),
+];
+
+fn assert_on_screen(page: &Page, what: &str) {
+    for (w, h) in SIZES {
+        page.resize(w, h);
+        let off: Value = serde_json::from_str(page.eval(OFF_SCREEN).as_str().unwrap()).unwrap();
+        assert_eq!(
+            off,
+            serde_json::json!([]),
+            "{what} at {w} x {h}: off screen"
+        );
+    }
+}
+
+#[test]
+fn everything_stays_on_screen_at_any_size() {
+    let mut ov = Overlay::start();
+    // the OBS page: front view, side views, and just the controller
+    for query in [
+        "?trail=0",
+        "?trail=0&sides=1",
+        "?trail=0&readout=0&channels=0",
+    ] {
+        let Some(page) = Page::open(&ov, query) else {
+            return;
+        };
+        show(&mut ov, &page, &Radio::default());
+        assert_on_screen(&page, query);
+    }
+
+    // the setup page, with the wizard pointing at each control in turn
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    show(&mut ov, &setup, &Radio::default());
+    assert_on_screen(&setup, "setup page");
+    setup.eval("document.getElementById('bStart').click()");
+    for target in [
+        "left_y", "left_x", "right_y", "right_x", "SA", "SB", "SC", "SD", "SE", "S1",
+    ] {
+        setup.wait_until(
+            target,
+            &format!("document.getElementById('root').dataset.learnTarget === '{target}'"),
+        );
+        assert_on_screen(&setup, &format!("setup page, wizard on {target}"));
+        setup.eval("document.getElementById('bSkip').click()");
+    }
+}
+
+#[test]
+fn channel_detection_says_why_it_cant_start() {
+    let can_start = |page: &Page, can: bool, says: &str| {
+        page.wait_until(
+            says,
+            &format!(
+                "document.getElementById('bStart').disabled === {} && document.getElementById('prompt').textContent.includes({says:?})",
+                !can
+            ),
+        );
+    };
+    // the demo moves every control at once
+    let demo = Overlay::launch(&["--demo"], None);
+    let Some(page) = Page::open(&demo, "?setup=1") else {
+        return;
+    };
+    can_start(&page, false, "The demo moves every control");
+
+    // no radio yet, then plugged in
+    let mut ov = Overlay::start();
+    let Some(page) = Page::open(&ov, "?setup=1") else {
+        return;
+    };
+    can_start(&page, false, "Connect the radio");
+    show(&mut ov, &page, &Radio::default());
+    can_start(&page, true, "Move each control when asked");
 }

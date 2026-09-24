@@ -125,6 +125,10 @@ impl Engine {
     fn on_command(&mut self, cmd: Command) {
         match cmd {
             Command::LearnStart => {
+                // nothing to detect without a radio, and the demo moves every control at once
+                if !self.raw.connected || self.raw.demo {
+                    return;
+                }
                 self.finished = None;
                 self.learner = Some(Learner::default());
                 self.step_learner();

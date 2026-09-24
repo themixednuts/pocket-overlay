@@ -60,9 +60,19 @@
   #debug { position: fixed; left: 8px; bottom: 8px; color: #fff; background: rgba(0,0,0,.75); font: 12px monospace; padding: 6px 8px; white-space: pre; display: none; }
 
   /* ---- setup view ---- */
-  body.setup { background: #0e0f11; overflow: auto; }
-  body.setup svg#root { height: 58vh; }
-  #setup { display: none; padding: 12px 20px 24px; font-size: 14px; max-width: 1100px; margin: 0 auto; }
+  /* The radio stays put and the settings scroll beside it (wide windows) or under it (narrow
+     ones), so the control the wizard highlights is always in view. --draw-aspect is the
+     drawing's width / height, set by applyParts. */
+  body.setup { background: #0e0f11; display: grid; height: 100vh; }
+  body.setup svg#root { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+  @media (min-aspect-ratio: 5/4) {
+    body.setup { grid-template-columns: minmax(0, calc(100vh * var(--draw-aspect, .82))) minmax(320px, 1fr); }
+  }
+  @media not (min-aspect-ratio: 5/4) {
+    body.setup { grid-template-rows: minmax(0, min(48vh, calc(100vw / var(--draw-aspect, .82)))) minmax(0, 1fr); }
+  }
+  #setup { display: none; padding: 12px max(clamp(12px, 4%, 20px), calc((100% - 1100px) / 2)) 24px; font-size: 14px;
+           min-width: 0; min-height: 0; overflow-y: auto; container-type: inline-size; }
   body.setup #setup { display: block; }
   .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
   #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
@@ -108,6 +118,9 @@
   td.warn { color: var(--warn); }
   .mini { display: inline-block; width: 120px; height: 8px; background: #2a2c31; position: relative; vertical-align: middle; border-radius: 2px; }
   .mini i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+  /* a narrow settings column: the table's text wraps and the value bars shrink, so it never runs off the side */
+  @container (max-width: 520px) { table { font-size: 12px; } td, th { padding-right: 6px; } .mini { width: 48px; } }
+  @container (max-width: 300px) { table { font-size: 11px; } }
 </style>
 </head>
 <body>
@@ -326,6 +339,7 @@ function applyParts(readout, channels) {
   $("channels").style.display = channels ? "" : "none";
   $("channels").setAttribute("transform", readout ? "" : "translate(0 -38)");
   $("root").setAttribute("viewBox", `${vbLeft} ${vbTop} ${vbRight - vbLeft} ${vbHeight(readout, channels)}`);
+  document.documentElement.style.setProperty("--draw-aspect", ((vbRight - vbLeft) / vbHeight(readout, channels)).toFixed(4));
   $("root").dataset.parts = key;
 }
 const showPart = (param, saved) => (param === null ? saved : param !== "0");
@@ -642,6 +656,7 @@ const CONTROLS = [
 const KIND = { idle: "not moved yet", analog: "stick / pot", switch2: "2-pos switch", switch3: "3-pos switch" };
 const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", right_x: "Right ↔" };
 
+const PROMPT = $("prompt").textContent;
 function renderSetup(s) {
   $("devName").textContent = s.connected ? s.name : "No radio connected";
   if (document.activeElement !== $("modeSel")) $("modeSel").value = String(s.mode);
@@ -667,22 +682,28 @@ function renderSetup(s) {
     const kind = s.kinds[src.ch - 1];
     // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
     const odd = want && kind && kind !== "idle" && kind !== want && !(want === "switch2" && kind === "switch3");
-    const w = Math.abs(v) * 60, left = v < 0 ? 60 - w : 60;
+    const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
     return `<tr><td>${label}</td><td>CH${src.ch}</td><td>${src.invert ? "reversed" : "normal"}</td>` +
       `<td class="${odd ? "warn" : ""}">${KIND[kind] ?? "-"}${odd ? " ⚠" : ""}</td>` +
-      `<td><span class="mini"><i style="left:${left}px;width:${w}px"></i></span> ${pct(v)}%</td></tr>`;
+      `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span> ${pct(v)}%</td></tr>`;
   });
   $("map").innerHTML = rows.join("");
 
   const l = s.learn;
   const running = !!(l && l.target);
-  $("bStart").disabled = running;
+  // nothing to detect without a radio, and the demo moves every control at once
+  const why = s.demo ? "The demo moves every control by itself, so there's nothing to detect. Plug in the radio and run pocket-overlay without --demo."
+    : !s.connected ? "Connect the radio (USB Joystick (HID) on its screen) to detect its channels." : "";
+  $("bStart").disabled = running || !!why;
   $("bSkip").disabled = !running;
   $("bCancel").disabled = !running;
   $("bStart").textContent = l && !l.target ? "Detect again" : "Detect channels";
   drawFocus(running ? l.target : null);
   $("root").dataset.learnTarget = running ? l.target : "";
-  if (!l) return;
+  if (!l) {
+    $("prompt").textContent = why || PROMPT;
+    return;
+  }
   $("step").textContent = running ? `Step ${l.step + 1} of ${l.total}` : "Done";
   $("prompt").textContent = running ? l.prompt : (l.saved || "Done");
   $("hint").textContent = l.hint;
