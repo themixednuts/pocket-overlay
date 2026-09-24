@@ -32,12 +32,10 @@
   .tag { fill: var(--ink); font-size: 15px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 4px; }
   .tag .st { fill: var(--accent); }
   .knob { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
-  .shaft { stroke: #c8ccd2; stroke-width: 7; stroke-linecap: round; }
   .stub { fill: #1a1b1e; stroke: #4a4c52; stroke-width: 1.5; }
   .cap { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
   .caprib { stroke: rgba(0,0,0,.35); stroke-width: 1.5; }
   .trail { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; opacity: .45; }
-  .dirarc { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; filter: url(#glow); }
   .guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: .55; }
   .tick { fill: var(--accent); }
   .lit { fill: var(--accent) !important; filter: url(#glow); }
@@ -264,53 +262,61 @@ for (const [id, cx] of [["trimL", 423], ["trimR", 577]]) {
 }
 
 // ---------------- gimbals (front) ----------------
-// Knob position is linear in the channel value: full deflection reaches the edge of the
-// dashed travel box. Up on the stick is up on screen.
-const TRAVEL = 46, RIM = 78;
+// Drawn like the Pocket's own gimbals (measured on the product photo): a black opening in
+// the round bezel with a grey carriage across it. The carriage, with its slot, slides up
+// and down with the stick's Y; the knob rides left and right along the slot with X.
+// Both are linear in the channel value.
+const TRAVEL_X = 27, TRAVEL_Y = 26;
+const OPEN_W = 114, OPEN_H = 92;
 function buildGimbal(g, cx, cy, side) {
-  el("circle", { cx, cy, r: 83, fill: "#0c0c0e", stroke: "#4a4c52", "stroke-width": 2 }, g);
-  el("circle", { cx, cy, r: 73, fill: "url(#well)" }, g);
-  el("rect", { x: cx - 60, y: cy - 46, width: 120, height: 92, rx: 12, fill: "#1a1b1e", stroke: "#2c2e33", "stroke-width": 2 }, g);
-  el("rect", { "data-test": `travel-${side}`, x: cx - TRAVEL, y: cy - TRAVEL, width: TRAVEL * 2, height: TRAVEL * 2, rx: 6,
-               fill: "none", stroke: "rgba(255,255,255,.12)", "stroke-dasharray": "3 5" }, g);
-  el("path", { d: `M${cx - TRAVEL} ${cy} H${cx + TRAVEL} M${cx} ${cy - TRAVEL} V${cy + TRAVEL}`, stroke: "rgba(255,255,255,.10)" }, g);
-  const arc = el("path", { class: "dirarc", "data-test": `arc-${side}` }, g);
-  // value ticks: x along the bottom edge, y along the outer edge
-  const edgeX = side === "L" ? cx - TRAVEL - 7 : cx + TRAVEL + 7;
+  el("circle", { cx, cy, r: 82, fill: "#0c0c0e", stroke: "#4a4c52", "stroke-width": 2 }, g);
+  el("circle", { cx, cy, r: 76, fill: "none", stroke: "#1f2024", "stroke-width": 5 }, g);
+  const ox = cx - OPEN_W / 2, oy = cy - OPEN_H / 2;
+  el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11, fill: "#040405" }, g);
+  const clip = el("clipPath", { id: `opening-${side}` }, el("defs", {}, g));
+  el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11 }, clip);
+
+  // carriage: skirt below, slot frame, the slot itself (clipped to the opening)...
+  const inside = el("g", { "clip-path": `url(#opening-${side})` }, g);
+  const carriage = el("g", { "data-test": `carriage-${side}` }, inside);
+  el("rect", { x: cx - 50, y: cy + 14, width: 100, height: 80, fill: "#27282c" }, carriage);
+  el("rect", { x: cx - 50, y: cy - 20, width: 100, height: 40, rx: 6, fill: "#3a3b40", stroke: "#4c4e54", "stroke-width": 1.5 }, carriage);
+  el("rect", { "data-test": `slot-${side}`, x: cx - TRAVEL_X - 16, y: cy - 15, width: 2 * TRAVEL_X + 32, height: 30, rx: 8,
+               fill: "#050506", stroke: "#1c1d20", "stroke-width": 1.5 }, carriage);
+  // ...and the guide tabs it slides on, just outside the opening
+  const tabs = el("g", {}, g);
+  el("rect", { x: ox - 8, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, tabs);
+  el("rect", { x: ox + OPEN_W - 2, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, tabs);
+  el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11, fill: "none", stroke: "#2c2e33", "stroke-width": 2 }, g);
+
+  // test hook: the range the knob's centre covers (-1..1 on each axis)
+  el("rect", { "data-test": `travel-${side}`, x: cx - TRAVEL_X, y: cy - TRAVEL_Y, width: 2 * TRAVEL_X, height: 2 * TRAVEL_Y, fill: "none" }, g);
+
+  // value ticks: X under the opening, Y on the outer side
+  const edgeX = side === "L" ? ox - 17 : ox + OPEN_W + 17;
   const guideX = el("line", { class: "guide" }, g), guideY = el("line", { class: "guide" }, g);
   const tickX = el("path", { class: "tick", "data-test": `tickx-${side}` }, g);
   const tickY = el("path", { class: "tick", "data-test": `ticky-${side}` }, g);
-  const trail = el("polyline", { class: "trail" }, g);
-  const shaft = el("line", { class: "shaft", x1: cx, y1: cy, x2: cx, y2: cy }, g);
-  const knob = el("circle", { class: "knob", "data-test": `knob-${side}`, cx, cy, r: 15 }, g);
-  return { cx, cy, side, edgeX, arc, guideX, guideY, tickX, tickY, trail, shaft, knob, pts: [] };
+  const trail = el("polyline", { class: "trail" }, inside);
+  const knob = el("circle", { class: "knob", "data-test": `knob-${side}`, cx, cy, r: 14 }, g);
+  return { cx, cy, side, edgeX, bottom: oy + OPEN_H + 9, moving: [carriage, tabs], guideX, guideY, tickX, tickY, trail, knob, pts: [] };
 }
 const gL = buildGimbal($("gimbalL"), 331, 523, "L");
 const gR = buildGimbal($("gimbalR"), 672, 521, "R");
 
 function drawGimbal(g, s) {
   const sx = clamp(s.x), sy = clamp(s.y);
-  const x = g.cx + sx * TRAVEL, y = g.cy - sy * TRAVEL;
-  g.shaft.setAttribute("x2", x); g.shaft.setAttribute("y2", y);
+  const dy = -sy * TRAVEL_Y; // up on the stick = up on screen
+  const x = g.cx + sx * TRAVEL_X, y = g.cy + dy;
+  for (const part of g.moving) part.setAttribute("transform", `translate(0 ${dy.toFixed(2)})`);
   g.knob.setAttribute("cx", x); g.knob.setAttribute("cy", y);
 
-  const bottom = g.cy + TRAVEL + 7;
-  g.tickX.setAttribute("d", `M${x} ${bottom - 5} l5 8 h-10 Z`);
+  g.tickX.setAttribute("d", `M${x} ${g.bottom - 5} l5 8 h-10 Z`);
   const dir = g.side === "L" ? 1 : -1; // tick points inward
   g.tickY.setAttribute("d", `M${g.edgeX + 5 * dir} ${y} l${-8 * dir} 5 v-10 Z`);
-  g.guideX.setAttribute("x1", x); g.guideX.setAttribute("y1", y); g.guideX.setAttribute("x2", x); g.guideX.setAttribute("y2", bottom - 5);
+  g.guideX.setAttribute("x1", x); g.guideX.setAttribute("y1", y); g.guideX.setAttribute("x2", x); g.guideX.setAttribute("y2", g.bottom - 5);
   g.guideY.setAttribute("x1", x); g.guideY.setAttribute("y1", y); g.guideY.setAttribute("x2", g.edgeX + 5 * dir); g.guideY.setAttribute("y2", y);
 
-  // direction arc on the rim, centred on the push direction, brighter the further it goes
-  const mag = Math.min(1, Math.hypot(sx, sy));
-  if (mag < 0.03) {
-    g.arc.setAttribute("d", ""); g.arc.style.opacity = 0;
-  } else {
-    const a = Math.atan2(-sy, sx), span = 0.38;
-    const p = t => `${(g.cx + RIM * Math.cos(t)).toFixed(2)} ${(g.cy + RIM * Math.sin(t)).toFixed(2)}`;
-    g.arc.setAttribute("d", `M${p(a - span)} A${RIM} ${RIM} 0 0 1 ${p(a + span)}`);
-    g.arc.style.opacity = (0.25 + 0.75 * mag).toFixed(3);
-  }
   if (TRAIL) {
     g.pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     if (g.pts.length > TRAIL) g.pts.shift();

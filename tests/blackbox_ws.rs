@@ -351,9 +351,11 @@ async fn switches_read_right_at_low_mix_weights() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn radio_rate_flood_is_smoothed_and_never_lags() {
-    // 2000 reports/s for 1.5 s, twice the most the radio sends. Viewers get at most
-    // ~120 updates/s (one per display frame), always the newest, and the last position
-    // shows up right after it's sent.
+    // Two parts:
+    // 1. A flood far beyond the radio (tens of thousands of reports/s): viewers still get at
+    //    most one update per frame, and the app catches up once it stops.
+    // 2. The radio's real rate (~1000 reports/s): the last position is on screen almost
+    //    immediately, which is what matters on stream.
     let mut ov = Overlay::start();
     let mut ws = Ws::connect(ov.port).await;
     ov.channels_fast(&sticks([0; 4]));
@@ -401,7 +403,7 @@ async fn radio_rate_flood_is_smoothed_and_never_lags() {
     let per_sec = f64::from(updates) / 1.5;
     let rate = f64::from(sent_count) / 1.5;
     eprintln!(
-        "sent {rate:.0} reports/s; viewer got {per_sec:.0} updates/s; last position shown {lag:?} after it was sent"
+        "flood: sent {rate:.0} reports/s; viewer got {per_sec:.0} updates/s; caught up {lag:?} after it stopped"
     );
     assert!(rate > 2000.0, "test only managed {rate:.0} reports/s");
     assert!(
@@ -410,8 +412,33 @@ async fn radio_rate_flood_is_smoothed_and_never_lags() {
     );
     // Windows timers tick every ~15.6 ms, so ~64/s there: still one per 60 Hz frame
     assert!(per_sec >= 55.0, "viewer starved: {per_sec:.0} updates/s");
+    assert!(lag < Duration::from_secs(1), "took {lag:?} to catch up");
+
+    // part 2: ~1000 reports/s (16 every 16 ms, as coarse OS timers allow), then a last one
+    let last = sticks([-500, 250, -125, 60]);
+    let (mut ov, sent) = tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+        let mut n = 0i16;
+        while start.elapsed() < Duration::from_secs(1) {
+            for _ in 0..16 {
+                n = n.wrapping_add(1);
+                ov.channels_fast(&sticks([n % 1000, 0, 0, 0]));
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        ov.channels_fast(&last);
+        (ov, std::time::Instant::now())
+    })
+    .await
+    .unwrap();
+    ws.wait_for("the last report", |s| {
+        is_showing(s, &expected_channels(&last))
+    })
+    .await;
+    let lag = sent.elapsed();
+    eprintln!("radio rate: last position shown {lag:?} after it was sent");
     assert!(
-        lag < Duration::from_millis(150),
+        lag < Duration::from_millis(60),
         "last position took {lag:?}"
     );
     ov.line("disconnect");

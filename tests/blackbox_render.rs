@@ -1,13 +1,12 @@
 //! Black-box rendering tests: the real binary serves the real page to headless Chrome/Edge,
 //! a virtual radio (EdgeTX's encoder -> report bytes on stdin) sets physical positions,
-//! and we measure the rendered SVG in screen space: where the knobs are, which way things
-//! point and lean, what's lit, what the text says.
+//! and we measure the rendered SVG in screen space: where the knobs and gimbal slots are,
+//! which way the paddles lean, what's lit, what the text says.
 //!
 //! Skips (and passes) when no Chromium-based browser is found; set `CHROME` to point at one.
 
 mod common;
 
-use std::f64::consts::PI;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -52,15 +51,14 @@ const MEASURE: &str = r#"(() => {
     return { x: b.x, y: b.y, w: b.width, h: b.height, cx: b.x + b.width / 2, cy: b.y + b.height / 2 }; };
   const fill = e => e ? getComputedStyle(e).fill : null;
   const o = {};
-  for (const k of ["knob-L","knob-R","travel-L","travel-R","arc-L","arc-R","tickx-L","ticky-L","tickx-R","ticky-R",
+  for (const k of ["knob-L","knob-R","travel-L","travel-R","slot-L","slot-R","tickx-L","ticky-L","tickx-R","ticky-R",
                    "sa-side","sd-side","sb-nub","sc-nub","s1-ribs","se-pad"])
     o[k] = box(k);
   o.fill = {};
   for (const k of ["sa-front","sd-front","sb-nub","sc-nub","se-pad"]) o.fill[k] = fill(q(k));
   o.fill["sa-side"] = fill(q("sa-side").firstElementChild);
   o.fill["sd-side"] = fill(q("sd-side").firstElementChild);
-  o.opacity = { "arc-L": +getComputedStyle(q("arc-L")).opacity, "arc-R": +getComputedStyle(q("arc-R")).opacity,
-                "s1-ribs": +getComputedStyle(q("s1-ribs")).opacity, front: +getComputedStyle(document.getElementById("front")).opacity };
+  o.opacity = { "s1-ribs": +getComputedStyle(q("s1-ribs")).opacity, front: +getComputedStyle(document.getElementById("front")).opacity };
   o.text = {};
   for (const k of ["tag-sa","tag-sb","tag-sc","tag-sd","tag-se","tag-s1","readout"]) o.text[k] = q(k) ? q(k).textContent : null;
   o.lcd = [...Array(8)].map((_, i) => ({ bar: box(`lcd-bar-${i + 1}`), zero: box(`lcd-zero-${i + 1}`) }));
@@ -184,16 +182,6 @@ fn pct(v: f32) -> String {
     }
 }
 
-/// Angle difference folded into -180..180 degrees.
-fn wrap(deg: f64) -> f64 {
-    (deg + 540.0).rem_euclid(360.0) - 180.0
-}
-
-/// Screen angle (degrees, counter-clockwise, 0 = pointing right) from `a` to `b`.
-fn angle(a: &Value, b: &Value) -> f64 {
-    (-(num(&b["cy"]) - num(&a["cy"]))).atan2(num(&b["cx"]) - num(&a["cx"])) * 180.0 / PI
-}
-
 // ---------------------------------------------------------------------------------------
 
 #[test]
@@ -254,24 +242,28 @@ fn sticks_render_where_they_are_pushed() {
                 "y tick",
                 &m,
             );
-            // direction arc sits on the rim in the direction of the push
-            let mag = sx.hypot(sy).min(1.0);
-            let arc = &m[format!("arc-{side}").as_str()];
-            let op = num(&m["opacity"][format!("arc-{side}").as_str()]);
-            if mag >= 0.2 {
-                let centre =
-                    serde_json::json!({ "cx": num(&travel["cx"]), "cy": num(&travel["cy"]) });
-                let want = sy.atan2(sx) * 180.0 / PI;
-                let got = angle(&centre, arc);
-                let diff = wrap(got - want);
-                assert!(
-                    diff.abs() < 6.0,
-                    "{side} arc points {got:.1}°, stick {want:.1}°\n{m}"
-                );
-                approx(op, 0.25 + 0.75 * mag, 0.01, "arc brightness", &m);
-            } else if mag < 0.03 {
-                assert_eq!(op, 0.0, "arc hidden at centre");
-            }
+            // Like the real gimbal: the slot moves up and down with the stick (never sideways)
+            // and the knob rides along inside it.
+            let slot = &m[format!("slot-{side}").as_str()];
+            approx(
+                num(&slot["cy"]),
+                num(&knob["cy"]),
+                0.6,
+                "slot follows Y",
+                &m,
+            );
+            approx(
+                num(&slot["cx"]),
+                num(&travel["cx"]),
+                0.6,
+                "slot stays centred in X",
+                &m,
+            );
+            let room = (num(&slot["w"]) - num(&knob["w"])) / 2.0;
+            assert!(
+                (num(&knob["cx"]) - num(&slot["cx"])).abs() <= room + 0.6,
+                "{side} knob outside its slot\n{m}"
+            );
         }
         let thr = js_round((f64::from(r.left_y) + 1.0) * 50.0);
         let want = format!(

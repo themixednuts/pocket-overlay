@@ -71,7 +71,7 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - Edge cases:
     - no deadzone (a single EdgeTX unit off centre comes through);
     - switches mixed at low weights;
-    - a 70,000 reports/s flood (at most one update per frame, and the last position shows up promptly);
+    - rates: at the radio's ~1000 reports/s the last position is on screen within 60 ms (about 11 ms locally); a flood of tens of thousands per second still gives at most one update per frame and catches up within a second;
     - several viewers plus a frozen one;
     - rapid unplug cycles;
     - junk in the stream.
@@ -84,8 +84,8 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - two radios plugged in (it picks the Pocket);
   - reports never going backwards at 1000/s;
   - throughput (over 180,000 reports/s in a debug build).
-- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), direction glow, paddle lean, what's lit, bars, text, and the setup page.
-- **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, mirrored glow, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
+- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), the gimbal slot moving up/down with the stick while the knob rides along it, paddle lean, what's lit, bars, text, and the setup page.
+- **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, a gimbal slot that doesn't follow the stick, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 
 Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mirror. Without Chrome or Edge, the render tests print `SKIPPED` and pass. CI (`.github/workflows/ci.yml`) fetches a pinned EdgeTX commit and runs everything on Windows, macOS and Linux.
 
