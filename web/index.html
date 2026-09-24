@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="traced.js"></script>
+<style>
+  /* Query options: ?accent=%2300e0ff &sides=1 &channels=0 &readout=0 &trail=0 &debug=1 &setup=1 */
+  :root {
+    --accent: #39ff88;
+    --shell: rgba(58, 52, 47, 0.92);
+    --shell-edge: rgba(255, 244, 230, 0.28);
+    --plastic: #1d1e21;
+    --plastic-edge: #3a3c41;
+    --grip: #2b2c2f;
+    --ink: #eef1f4;
+    --dim: rgba(238, 241, 244, 0.55);
+    --lcd: #d4e9f2;
+    --lcd-ink: #17242c;
+    --warn: #ffb020;
+  }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; color: var(--ink); }
+  svg#root { display: block; width: 100vw; height: 100vh; }
+  text { font-family: inherit; }
+  .shell { fill: var(--shell); stroke: var(--shell-edge); stroke-width: 2; stroke-linejoin: round; }
+  .plastic { fill: var(--plastic); stroke: var(--plastic-edge); stroke-width: 1.5; }
+  .key { fill: #16171a; stroke: #45474d; stroke-width: 1.5; }
+  .keytxt { fill: #9ea3aa; font-size: 9px; font-weight: 700; text-anchor: middle; font-style: italic; }
+  .tag { fill: var(--ink); font-size: 15px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 4px; }
+  .tag .st { fill: var(--accent); }
+  .knob { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
+  .shaft { stroke: #c8ccd2; stroke-width: 7; stroke-linecap: round; }
+  .stub { fill: #1a1b1e; stroke: #4a4c52; stroke-width: 1.5; }
+  .cap { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
+  .caprib { stroke: rgba(0,0,0,.35); stroke-width: 1.5; }
+  .trail { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; opacity: .45; }
+  .dirarc { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; filter: url(#glow); }
+  .guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: .55; }
+  .tick { fill: var(--accent); }
+  .lit { fill: var(--accent) !important; filter: url(#glow); }
+  .litStroke { stroke: var(--accent) !important; filter: url(#glow); }
+  .unmapped { opacity: .35; }
+  .lcdtxt { fill: var(--lcd-ink); font-size: 10px; font-weight: 700; }
+  .bar { fill: var(--accent); }
+  .barbg { fill: rgba(0,0,0,.55); stroke: rgba(255,255,255,.15); }
+  .chtxt { fill: var(--dim); font-size: 12px; paint-order: stroke; stroke: rgba(0,0,0,.8); stroke-width: 3px; }
+  .chval { fill: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: rgba(0,0,0,.8); stroke-width: 3px; }
+  .btn { fill: rgba(0,0,0,.55); stroke: rgba(255,255,255,.2); }
+  .readout { fill: var(--ink); font-size: 17px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.8); stroke-width: 5px; }
+  .readout .k { fill: var(--dim); }
+  .offline .dimmable { opacity: .35; }
+  #focus { display: none; pointer-events: none; }
+  #focus circle { fill: none; stroke: var(--warn); stroke-width: 4; animation: pulse 1s ease-in-out infinite; }
+  #focus line { stroke: var(--warn); stroke-width: 5; marker-end: url(#arrow); }
+  @keyframes pulse { 50% { opacity: .25; } }
+  #debug { position: fixed; left: 8px; bottom: 8px; color: #fff; background: rgba(0,0,0,.75); font: 12px monospace; padding: 6px 8px; white-space: pre; display: none; }
+
+  /* ---- setup view ---- */
+  body.setup { background: #0e0f11; overflow: auto; }
+  body.setup svg#root { height: 58vh; }
+  #setup { display: none; padding: 12px 20px 24px; font-size: 14px; max-width: 1100px; margin: 0 auto; }
+  body.setup #setup { display: block; }
+  .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
+  #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
+  #setup h2 { font-size: 15px; margin: 14px 0 6px; color: var(--dim); font-weight: 500; }
+  #setup button { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #setup button.primary { background: var(--accent); color: #07140c; border-color: transparent; font-weight: 700; }
+  #setup button:disabled { opacity: .4; cursor: default; }
+  #wizard { border: 1px solid #33363c; border-radius: 8px; padding: 12px 14px; margin: 10px 0; background: #15161a; }
+  #prompt { font-size: 20px; font-weight: 700; margin: 4px 0; }
+  #hint { color: var(--dim); }
+  #holdbar { height: 8px; background: #2a2c31; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+  #holdbar div { height: 100%; width: 0; background: var(--accent); }
+  #warn { color: var(--warn); min-height: 1.3em; }
+  #found { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid #23252a; font-variant-numeric: tabular-nums; }
+  th { color: var(--dim); font-weight: 500; }
+  td.warn { color: var(--warn); }
+  .mini { display: inline-block; width: 120px; height: 8px; background: #2a2c31; position: relative; vertical-align: middle; border-radius: 2px; }
+  .mini i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+</style>
+</head>
+<body>
+<svg id="root" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="knurl" cx="40%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#c3c8cf"/><stop offset="1" stop-color="#6d737b"/>
+    </radialGradient>
+    <radialGradient id="well" cx="50%" cy="40%" r="60%">
+      <stop offset="0" stop-color="#26282c"/><stop offset="1" stop-color="#050506"/>
+    </radialGradient>
+    <linearGradient id="shellShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="rgba(255,240,220,.10)"/><stop offset=".6" stop-color="rgba(0,0,0,0)"/><stop offset="1" stop-color="rgba(0,0,0,.25)"/>
+    </linearGradient>
+    <pattern id="grille" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="8" cy="8" r="3" fill="#050506" stroke="#55585e" stroke-width="1"/>
+    </pattern>
+    <clipPath id="wheelClip"><ellipse cx="0" cy="0" rx="34" ry="16"/></clipPath>
+    <clipPath id="wheelClipFront"><ellipse cx="0" cy="0" rx="19" ry="9"/></clipPath>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="var(--warn)"/>
+    </marker>
+  </defs>
+
+  <!-- ============ optional side views (?sides=1), traced from the side photo: SA and SE ============ -->
+  <g id="sideL" class="dimmable" transform="translate(-447 115) scale(0.89)">
+    <path class="shell side-body"/>
+    <path class="side-grip" fill="var(--grip)" stroke="#45474c" stroke-width="1.5"/>
+    <g id="seSide"><path class="plastic" d="M372 332 L420 300 L450 296 L458 318 L444 346 L396 366 L370 358 Z"/>
+      <path d="M392 350 L436 318 M400 354 L442 324 M384 344 L428 312 M408 358 L446 332" stroke="#5a5d63" stroke-width="3"/></g>
+    <g id="saSide" data-test="sa-side"><path class="plastic" d="M488 268 L540 256 L552 263 L548 298 L494 300 L486 292 Z"/></g>
+  </g>
+
+  <!-- ============ right side: mirror of the left: SD and S1 ============ -->
+  <g id="sideR" class="dimmable" transform="translate(1447 115) scale(-0.89 0.89)">
+    <path class="shell side-body"/>
+    <path class="side-grip" fill="var(--grip)" stroke="#45474c" stroke-width="1.5"/>
+    <g transform="translate(412 330) rotate(-28)">
+      <ellipse class="plastic" cx="0" cy="0" rx="36" ry="18"/>
+      <g clip-path="url(#wheelClip)"><g id="s1RibsSide"></g></g>
+      <ellipse id="s1RimSide" cx="0" cy="0" rx="36" ry="18" fill="none" stroke="#6a6d73" stroke-width="2"/>
+    </g>
+    <g id="sdSide" data-test="sd-side"><path class="plastic" d="M488 268 L540 256 L552 263 L548 298 L494 300 L486 292 Z"/></g>
+  </g>
+
+  <!-- ============ front view (traced from the front photo) ============ -->
+  <g id="front" class="dimmable">
+    <path id="antenna" fill="#2a2b2f" stroke="#4a4c52" stroke-width="2"/>
+    <!-- SB / SC toggle nubs: height shows which way they're thrown -->
+    <rect id="sbNub" data-test="sb-nub" class="plastic" x="348" width="29" rx="9"/>
+    <rect id="scNub" data-test="sc-nub" class="plastic" x="624" width="29" rx="9"/>
+    <path id="frontBody" class="shell"/>
+    <path id="frontShade" fill="url(#shellShade)"/>
+    <!-- SA / SD shoulder paddles -->
+    <path id="saFront" data-test="sa-front" class="plastic" d="M246 372 L310 351 L319 354 L318 362 L252 383 Z"/>
+    <path id="sdFront" data-test="sd-front" class="plastic" d="M756 372 L692 351 L683 354 L684 362 L750 383 Z"/>
+    <!-- SE (a pad on top, behind SA) and S1 (a wheel on the back, behind SD) can't be seen
+         from the front, so they're drawn just off the top corners on their own side. -->
+    <g id="seFront" transform="translate(206 336) rotate(-18)">
+      <rect class="plastic" data-test="se-pad" x="-20" y="-9" width="40" height="18" rx="6"/>
+      <path d="M-10 -5 V5 M-4 -6 V6 M2 -6 V6 M8 -5 V5" stroke="#5a5d63" stroke-width="2.5"/>
+    </g>
+    <g transform="translate(796 336) rotate(18)">
+      <ellipse class="plastic" rx="21" ry="10"/>
+      <g clip-path="url(#wheelClipFront)"><g id="s1RibsFront" data-test="s1-ribs"></g></g>
+      <ellipse id="s1RimFront" rx="21" ry="10" fill="none" stroke="#6a6d73" stroke-width="2"/>
+    </g>
+
+    <!-- LCD bezel + screen -->
+    <path d="M414 420 H588 V528 L570 552 H432 L414 528 Z" fill="#141518" stroke="#3a3c41" stroke-width="1.5"/>
+    <text x="501" y="545" fill="#4a4d53" font-size="12" font-weight="700" font-style="italic" text-anchor="middle">POCKET</text>
+    <rect x="424" y="427" width="153" height="94" rx="5" fill="var(--lcd)"/>
+    <g id="lcd"></g>
+
+    <g id="gimbalL"></g>
+    <g id="gimbalR"></g>
+
+    <!-- face controls (static, positions measured from the photo) -->
+    <rect x="462" y="571" width="74" height="24" rx="8" class="key"/>
+    <g id="trimL"></g><g id="trimR"></g>
+    <rect id="power" x="463" y="604" width="76" height="40" rx="20" fill="#16171a" stroke="#2a8f55" stroke-width="3"/>
+    <path d="M494 616 A10 10 0 1 0 508 616 M501 611 V623" fill="none" stroke="#7df2b0" stroke-width="2.5" stroke-linecap="round"/>
+    <g id="leftKeys"></g>
+    <circle cx="403" cy="687" r="23" class="key"/><text x="403" y="691" class="keytxt">SYS</text>
+    <circle cx="598" cy="687" r="23" class="key"/><text x="598" y="691" class="keytxt">MDL</text>
+    <circle cx="501" cy="703" r="50" fill="url(#grille)" stroke="#45474d" stroke-width="2"/>
+    <rect x="650" y="619" width="46" height="141" rx="12" class="key"/>
+    <rect x="660" y="634" width="26" height="110" rx="6" fill="#0a0a0c" stroke="#8e939a" stroke-width="1.5"/>
+  </g>
+
+  <g id="tags"></g>
+  <g id="readout"></g>
+  <g id="channels" class="dimmable"></g>
+  <g id="focus"><circle r="40" data-test="focus-ring"/><line/></g>
+</svg>
+
+<div id="setup">
+  <div class="devrow">
+    <div><b id="devName">-</b> <span id="devLayout" style="color:var(--dim)"></span></div>
+    <label>Stick mode
+      <select id="modeSel" data-test="mode-select">
+        <option value="1">Mode 1 (throttle right)</option>
+        <option value="2">Mode 2 (throttle left)</option>
+        <option value="3">Mode 3 (throttle right)</option>
+        <option value="4">Mode 4 (throttle left)</option>
+      </select>
+    </label>
+  </div>
+  <div id="wizard">
+    <div id="step" style="color:var(--dim)">Channel detection</div>
+    <div id="prompt">Move each control when asked; the overlay figures out which channel it is on.</div>
+    <div id="hint"></div>
+    <div id="holdbar"><div></div></div>
+    <div id="warn"></div>
+    <button id="bStart" class="primary">Detect channels</button>
+    <button id="bSkip" disabled>Skip (S)</button>
+    <button id="bCancel" disabled>Cancel (Esc)</button>
+    <div id="found"></div>
+  </div>
+  <h2>Mapping</h2>
+  <table>
+    <thead><tr><th>Control</th><th>Channel</th><th>Direction</th><th>Looks like</th><th>Value</th></tr></thead>
+    <tbody id="map"></tbody>
+  </table>
+</div>
+<div id="debug"></div>
+
+<script>
+const q = new URLSearchParams(window.OVERLAY_QUERY ?? location.search);
+if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.get("accent"));
+const SETUP = q.get("setup") === "1";
+const SIDES = q.get("sides") === "1";
+const CHANNELS = q.get("channels") !== "0";
+const READOUT = q.get("readout") !== "0";
+const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
+const DEBUG = q.get("debug") === "1";
+if (SETUP) document.body.classList.add("setup");
+
+const NS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const clamp = v => Math.max(-1, Math.min(1, v || 0));
+const pct = v => { const n = Math.round(clamp(v) * 100); return (n > 0 ? "+" : "") + n; };
+
+// ---------------- traced outlines ----------------
+const T = window.TRACED || {};
+$("frontBody").setAttribute("d", T.frontBody || "");
+$("frontShade").setAttribute("d", T.frontBody || "");
+$("antenna").setAttribute("d", T.frontAntenna || "");
+document.querySelectorAll(".side-body").forEach(p => p.setAttribute("d", T.sideBody || ""));
+document.querySelectorAll(".side-grip").forEach(p => p.setAttribute("d", T.sideGrip || ""));
+
+// ---------------- layout ----------------
+let vbTop = 175, vbBottom = 828;
+if (READOUT) vbBottom += 44;
+if (CHANNELS) vbBottom += 132;
+const vbLeft = SIDES ? -160 : 160, vbRight = SIDES ? 1162 : 842;
+$("root").setAttribute("viewBox", `${vbLeft} ${vbTop} ${vbRight - vbLeft} ${vbBottom - vbTop}`);
+if (!SIDES) { $("sideL").style.display = "none"; $("sideR").style.display = "none"; }
+if (DEBUG) $("debug").style.display = "block";
+
+// ---------------- static face details ----------------
+[["RTN", 635], ["PAGE<", 671], ["PAGE>", 704], ["TELE", 737]].forEach(([t, y]) => {
+  el("rect", { x: 308, y: y - 13, width: 44, height: 26, rx: 13, class: "key" }, $("leftKeys"));
+  el("text", { x: 330, y: y + 3, class: "keytxt" }, $("leftKeys")).textContent = t;
+});
+for (const [id, cx] of [["trimL", 423], ["trimR", 577]]) {
+  const g = $(id);
+  el("circle", { cx, cy: 620, r: 24, class: "key" }, g);
+  el("path", { d: `M${cx - 11} 620 H${cx + 11} M${cx} 609 V631`, stroke: "#5b5e64", "stroke-width": 5, "stroke-linecap": "round" }, g);
+}
+
+// ---------------- gimbals (front) ----------------
+// Knob position is linear in the channel value: full deflection reaches the edge of the
+// dashed travel box. Up on the stick is up on screen.
+const TRAVEL = 46, RIM = 78;
+function buildGimbal(g, cx, cy, side) {
+  el("circle", { cx, cy, r: 83, fill: "#0c0c0e", stroke: "#4a4c52", "stroke-width": 2 }, g);
+  el("circle", { cx, cy, r: 73, fill: "url(#well)" }, g);
+  el("rect", { x: cx - 60, y: cy - 46, width: 120, height: 92, rx: 12, fill: "#1a1b1e", stroke: "#2c2e33", "stroke-width": 2 }, g);
+  el("rect", { "data-test": `travel-${side}`, x: cx - TRAVEL, y: cy - TRAVEL, width: TRAVEL * 2, height: TRAVEL * 2, rx: 6,
+               fill: "none", stroke: "rgba(255,255,255,.12)", "stroke-dasharray": "3 5" }, g);
+  el("path", { d: `M${cx - TRAVEL} ${cy} H${cx + TRAVEL} M${cx} ${cy - TRAVEL} V${cy + TRAVEL}`, stroke: "rgba(255,255,255,.10)" }, g);
+  const arc = el("path", { class: "dirarc", "data-test": `arc-${side}` }, g);
+  // value ticks: x along the bottom edge, y along the outer edge
+  const edgeX = side === "L" ? cx - TRAVEL - 7 : cx + TRAVEL + 7;
+  const guideX = el("line", { class: "guide" }, g), guideY = el("line", { class: "guide" }, g);
+  const tickX = el("path", { class: "tick", "data-test": `tickx-${side}` }, g);
+  const tickY = el("path", { class: "tick", "data-test": `ticky-${side}` }, g);
+  const trail = el("polyline", { class: "trail" }, g);
+  const shaft = el("line", { class: "shaft", x1: cx, y1: cy, x2: cx, y2: cy }, g);
+  const knob = el("circle", { class: "knob", "data-test": `knob-${side}`, cx, cy, r: 15 }, g);
+  return { cx, cy, side, edgeX, arc, guideX, guideY, tickX, tickY, trail, shaft, knob, pts: [] };
+}
+const gL = buildGimbal($("gimbalL"), 331, 523, "L");
+const gR = buildGimbal($("gimbalR"), 672, 521, "R");
+
+function drawGimbal(g, s) {
+  const sx = clamp(s.x), sy = clamp(s.y);
+  const x = g.cx + sx * TRAVEL, y = g.cy - sy * TRAVEL;
+  g.shaft.setAttribute("x2", x); g.shaft.setAttribute("y2", y);
+  g.knob.setAttribute("cx", x); g.knob.setAttribute("cy", y);
+
+  const bottom = g.cy + TRAVEL + 7;
+  g.tickX.setAttribute("d", `M${x} ${bottom - 5} l5 8 h-10 Z`);
+  const dir = g.side === "L" ? 1 : -1; // tick points inward
+  g.tickY.setAttribute("d", `M${g.edgeX + 5 * dir} ${y} l${-8 * dir} 5 v-10 Z`);
+  g.guideX.setAttribute("x1", x); g.guideX.setAttribute("y1", y); g.guideX.setAttribute("x2", x); g.guideX.setAttribute("y2", bottom - 5);
+  g.guideY.setAttribute("x1", x); g.guideY.setAttribute("y1", y); g.guideY.setAttribute("x2", g.edgeX + 5 * dir); g.guideY.setAttribute("y2", y);
+
+  // direction arc on the rim, centred on the push direction, brighter the further it goes
+  const mag = Math.min(1, Math.hypot(sx, sy));
+  if (mag < 0.03) {
+    g.arc.setAttribute("d", ""); g.arc.style.opacity = 0;
+  } else {
+    const a = Math.atan2(-sy, sx), span = 0.38;
+    const p = t => `${(g.cx + RIM * Math.cos(t)).toFixed(2)} ${(g.cy + RIM * Math.sin(t)).toFixed(2)}`;
+    g.arc.setAttribute("d", `M${p(a - span)} A${RIM} ${RIM} 0 0 1 ${p(a + span)}`);
+    g.arc.style.opacity = (0.25 + 0.75 * mag).toFixed(3);
+  }
+  if (TRAIL) {
+    g.pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    if (g.pts.length > TRAIL) g.pts.shift();
+    g.trail.setAttribute("points", g.pts.join(" "));
+  }
+}
+
+// ---------------- side views (optional) ----------------
+// Paddles pivot at their base: position 0 (up/away from the pilot) leans back, 1 leans to the face.
+const paddle = (id, pos) => $(id).setAttribute("transform", pos == null ? "" : `rotate(${pos ? 14 : -14} 520 300)`);
+// S1 wheels: ribs that roll sideways with the value (front: small, side: large)
+const S1_WHEELS = [["s1RibsFront", "s1RimFront", 5, 12, 14], ["s1RibsSide", "s1RimSide", 8, 20, 24]];
+for (const [id, , gap, h] of S1_WHEELS) {
+  for (let i = -8; i <= 8; i++) el("line", { x1: i * gap, y1: -h, x2: i * gap, y2: h, stroke: "#55585e", "stroke-width": gap / 2.7 }, $(id));
+}
+
+// ---------------- front switch nubs ----------------
+// Base sits on the shell edge at y=347; thrown toward the pilot = taller (tip faces the camera).
+const NUB_H = [13, 20, 27];
+function nub(id, pos) {
+  const h = NUB_H[pos ?? 1];
+  $(id).setAttribute("y", 347 - h); $(id).setAttribute("height", h + 4);
+}
+
+// ---------------- labels (page space, so mirrored views don't flip text) ----------------
+const sideLpt = (x, y) => [0.89 * x - 447, 0.89 * y + 115];
+const sideRpt = (x, y) => [-0.89 * x + 1447, 0.89 * y + 115];
+const tags = {};
+function tag(key, [x, y], name) {
+  const t = el("text", { class: "tag", x, y, "data-test": `tag-${key}` }, $("tags"));
+  el("tspan", {}, t).textContent = name + " ";
+  tags[key] = el("tspan", { class: "st" }, t);
+}
+tag("sb", [362, 300], "SB");
+tag("sc", [638, 300], "SC");
+tag("sa", [262, 348], "SA");
+tag("sd", [740, 348], "SD");
+tag("se", [206, 312], "SE");
+tag("s1", [796, 312], "S1");
+
+// ---------------- LCD: EdgeTX-style monitor of CH1-8 ----------------
+const lcd = $("lcd");
+const lcdTitle = el("text", { x: 430, y: 440, class: "lcdtxt" }, lcd);
+const lcdBars = [];
+for (let i = 0; i < 8; i++) {
+  const col = i >> 2, row = i & 3;
+  const x = 430 + col * 74, y = 450 + row * 16;
+  el("text", { x, y: y + 8, class: "lcdtxt", "font-size": 9 }, lcd).textContent = `${i + 1}`;
+  el("rect", { x: x + 9, y, width: 56, height: 9, fill: "none", stroke: "var(--lcd-ink)", "stroke-width": 1 }, lcd);
+  el("line", { x1: x + 37, y1: y - 1, x2: x + 37, y2: y + 10, stroke: "var(--lcd-ink)", "stroke-width": 1, "data-test": `lcd-zero-${i + 1}` }, lcd);
+  lcdBars.push({ bar: el("rect", { x: x + 37, y: y + 2, width: 0, height: 5, fill: "var(--lcd-ink)", "data-test": `lcd-bar-${i + 1}` }, lcd), x: x + 37 });
+}
+
+// ---------------- readout + channel strip under the radio ----------------
+const readoutText = READOUT ? el("text", { class: "readout", x: 501, y: 858, "data-test": "readout" }, $("readout")) : null;
+const chEls = [], btnEls = [];
+if (CHANNELS) {
+  const g = $("channels"), y0 = READOUT ? 880 : 842;
+  for (let i = 0; i < 8; i++) {
+    const col = i >> 2, row = i & 3;
+    const x = 232 + col * 312, y = y0 + row * 20, w = 190;
+    el("text", { x: x - 8, y: y + 11, "text-anchor": "end", class: "chtxt" }, g).textContent = `CH${i + 1}`;
+    el("rect", { x, y, width: w, height: 13, rx: 3, class: "barbg", "data-test": `ch-bg-${i + 1}` }, g);
+    el("line", { x1: x + w / 2, y1: y - 2, x2: x + w / 2, y2: y + 15, stroke: "rgba(255,255,255,.4)" }, g);
+    const bar = el("rect", { x: x + w / 2, y: y + 2, width: 0, height: 9, rx: 2, class: "bar", "data-test": `ch-bar-${i + 1}` }, g);
+    const val = el("text", { x: x + w + 8, y: y + 11, class: "chval", "data-test": `ch-val-${i + 1}` }, g);
+    chEls.push({ bar, val, x, w });
+  }
+  // CH9-32 are on/off only
+  const by = y0 + 4 * 20 + 8;
+  el("text", { x: 224, y: by + 11, "text-anchor": "end", class: "chtxt" }, g).textContent = "CH9-32";
+  for (let i = 0; i < 24; i++) {
+    const x = 232 + i * 22.6;
+    btnEls.push(el("rect", { x, y: by, width: 17, height: 13, rx: 3, class: "btn", "data-test": `btn-${i + 9}` }, g));
+    if (i % 4 === 0) el("text", { x: x + 8.5, y: by + 26, "text-anchor": "middle", class: "chtxt", "font-size": 10 }, g).textContent = i + 9;
+  }
+}
+
+// ---------------- setup: what to highlight for each wizard step ----------------
+const FOCUS = {
+  left_y: [331, 523, 95, [0, -1]], left_x: [331, 523, 95, [1, 0]],
+  right_y: [672, 521, 95, [0, -1]], right_x: [672, 521, 95, [1, 0]],
+  SA: [282, 367, 42], SB: [362, 332, 30], SC: [638, 332, 30], SD: [720, 367, 42],
+  SE: [206, 336, 34], S1: [796, 336, 34],
+};
+function drawFocus(target) {
+  const f = FOCUS[target];
+  $("focus").style.display = f ? "block" : "none";
+  if (!f) return;
+  const [x, y, r, dir] = f;
+  const c = $("focus").querySelector("circle"), l = $("focus").querySelector("line");
+  c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r);
+  l.style.display = dir ? "" : "none";
+  if (dir) {
+    l.setAttribute("x1", x + dir[0] * 20); l.setAttribute("y1", y + dir[1] * 20);
+    l.setAttribute("x2", x + dir[0] * (r - 8)); l.setAttribute("y2", y + dir[1] * (r - 8));
+  }
+}
+
+// ---------------- render ----------------
+// Which stick axis each function is on, per transmitter mode.
+const STICK_MODES = {
+  1: { THR: ["right", "y"], RUD: ["left", "x"], ELE: ["left", "y"], AIL: ["right", "x"] },
+  2: { THR: ["left", "y"], RUD: ["left", "x"], ELE: ["right", "y"], AIL: ["right", "x"] },
+  3: { THR: ["right", "y"], RUD: ["right", "x"], ELE: ["left", "y"], AIL: ["left", "x"] },
+  4: { THR: ["left", "y"], RUD: ["right", "x"], ELE: ["right", "y"], AIL: ["left", "x"] },
+};
+const ARROW ={ 2: ["↑", "↓"], 3: ["↑", "–", "↓"] };
+const swText = (pos, n) => pos == null ? "n/a" : ARROW[n][pos];
+function mapped(id, v) { $(id).classList.toggle("unmapped", v == null); }
+
+function render(s) {
+  const root = $("root");
+  root.classList.toggle("offline", !s.connected);
+  $("power").setAttribute("stroke", s.connected ? "var(--accent)" : "#3a3c41");
+  $("power").style.filter = s.connected ? "url(#glow)" : "";
+
+  drawGimbal(gL, s.left); drawGimbal(gR, s.right);
+
+  // SA / SD 2-pos paddles; lit = toward the pilot ("down", the + side in EdgeTX)
+  paddle("saSide", s.sa); paddle("sdSide", s.sd);
+  for (const [id, v] of [["saFront", s.sa], ["sdFront", s.sd], ["saSide", s.sa], ["sdSide", s.sd]]) {
+    mapped(id, v);
+    const shape = id.endsWith("Side") ? $(id).firstElementChild : $(id);
+    shape.classList.toggle("lit", v === 1);
+  }
+  nub("sbNub", s.sb); nub("scNub", s.sc);
+  mapped("sbNub", s.sb); mapped("scNub", s.sc);
+  $("sbNub").classList.toggle("lit", s.sb != null && s.sb !== 1);
+  $("scNub").classList.toggle("lit", s.sc != null && s.sc !== 1);
+
+  for (const id of ["seFront", "seSide"]) {
+    mapped(id, s.se);
+    $(id).querySelector(".plastic").classList.toggle("lit", s.se === 1);
+  }
+  $("seSide").setAttribute("transform", s.se === 1 ? "translate(2 4)" : "");
+
+  // S1: ribs roll with the value; the rim lights once it's off centre
+  for (const [ribsId, rimId, , , travel] of S1_WHEELS) {
+    $(ribsId).setAttribute("transform", `translate(${(clamp(s.s1 ?? 0) * travel).toFixed(2)} 0)`);
+    $(rimId).classList.toggle("litStroke", s.s1 != null && Math.abs(s.s1) > 0.02);
+    mapped(ribsId, s.s1);
+  }
+
+  // With no signal every label goes blank rather than showing a position nobody set.
+  const live = s.connected;
+  tags.sb.textContent = live ? swText(s.sb, 3) : "";
+  tags.sc.textContent = live ? swText(s.sc, 3) : "";
+  tags.sa.textContent = live ? swText(s.sa, 2) : "";
+  tags.sd.textContent = live ? swText(s.sd, 2) : "";
+  if (tags.se) tags.se.textContent = !live ? "" : s.se == null ? "n/a" : (s.se ? "●" : "○");
+  if (tags.s1) tags.s1.textContent = !live ? "" : s.s1 == null ? "n/a" : pct(s.s1);
+
+  lcdTitle.textContent = s.connected ? (s.name || "EdgeTX").replace(/ Joystick$/, "").slice(0, 22) : "NO USB SIGNAL";
+  lcdBars.forEach((b, i) => {
+    const len = ((s.channels[i] ?? 0) / 1024) * 26;
+    b.bar.setAttribute("x", b.x + Math.min(0, len)); b.bar.setAttribute("width", Math.abs(len));
+  });
+
+  if (readoutText && !s.connected) {
+    readoutText.replaceChildren();
+    el("tspan", { class: "k" }, readoutText).textContent = "NO SIGNAL";
+  } else if (readoutText) {
+    readoutText.replaceChildren();
+    const axes = STICK_MODES[s.mode] || STICK_MODES[2];
+    const val = name => { const [stick, axis] = axes[name]; return s[stick][axis]; };
+    const parts = [["THR ", Math.round((clamp(val("THR")) + 1) * 50) + "%"], ["  RUD ", pct(val("RUD"))],
+                   ["  ELE ", pct(val("ELE"))], ["  AIL ", pct(val("AIL"))]];
+    for (const [k, v] of parts) {
+      el("tspan", { class: "k" }, readoutText).textContent = k;
+      el("tspan", {}, readoutText).textContent = v;
+    }
+  }
+  chEls.forEach((e, i) => {
+    const raw = s.channels[i] ?? 0, half = e.w / 2, len = clamp(raw / 1024) * half;
+    e.bar.setAttribute("x", e.x + half + Math.min(0, len));
+    e.bar.setAttribute("width", Math.abs(len));
+    e.val.textContent = (raw / 10.24).toFixed(1) + "%";
+  });
+  btnEls.forEach((b, i) => b.classList.toggle("lit", (s.channels[i + 8] ?? 0) > 0));
+
+  if (SETUP) renderSetup(s);
+  if (DEBUG) $("debug").textContent = "channels: " + s.channels.map((v, i) => `${i + 1}:${v}`).join(" ");
+
+  // test hooks: which input this frame shows
+  root.dataset.channels = s.channels.join(",");
+  root.dataset.connected = s.connected;
+}
+
+// ---------------- setup view ----------------
+const CONTROLS = [
+  ["Left stick ↔", s => s.sticks.left_x], ["Left stick ↕", s => s.sticks.left_y],
+  ["Right stick ↔", s => s.sticks.right_x], ["Right stick ↕", s => s.sticks.right_y],
+  ["SA (2-pos)", s => s.controls.SA, "switch2"], ["SB (3-pos)", s => s.controls.SB, "switch3"],
+  ["SC (3-pos)", s => s.controls.SC, "switch3"], ["SD (2-pos)", s => s.controls.SD, "switch2"],
+  ["SE (button)", s => s.controls.SE, "switch2"], ["S1 (pot)", s => s.controls.S1, "analog"],
+];
+const KIND = { idle: "not moved yet", analog: "stick / pot", switch2: "2-pos switch", switch3: "3-pos switch" };
+const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", right_x: "Right ↔" };
+
+function renderSetup(s) {
+  $("devName").textContent = s.connected ? s.name : "No radio connected";
+  if (document.activeElement !== $("modeSel")) $("modeSel").value = String(s.mode);
+  $("devLayout").textContent = s.layout ? `(${s.layout})` : "";
+
+  const rows = CONTROLS.map(([label, get, want]) => {
+    const src = get(s);
+    if (!src) return `<tr><td>${label}</td><td>-</td><td></td><td></td><td></td></tr>`;
+    const v = (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1);
+    const kind = s.kinds[src.ch - 1];
+    // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
+    const odd = want && kind && kind !== "idle" && kind !== want && !(want === "switch2" && kind === "switch3");
+    const w = Math.abs(v) * 60, left = v < 0 ? 60 - w : 60;
+    return `<tr><td>${label}</td><td>CH${src.ch}</td><td>${src.invert ? "reversed" : "normal"}</td>` +
+      `<td class="${odd ? "warn" : ""}">${KIND[kind] ?? "-"}${odd ? " ⚠" : ""}</td>` +
+      `<td><span class="mini"><i style="left:${left}px;width:${w}px"></i></span> ${pct(v)}%</td></tr>`;
+  });
+  $("map").innerHTML = rows.join("");
+
+  const l = s.learn;
+  const running = !!(l && l.target);
+  $("bStart").disabled = running;
+  $("bSkip").disabled = !running;
+  $("bCancel").disabled = !running;
+  $("bStart").textContent = l && !l.target ? "Detect again" : "Detect channels";
+  drawFocus(running ? l.target : null);
+  $("root").dataset.learnTarget = running ? l.target : "";
+  if (!l) return;
+  $("step").textContent = running ? `Step ${l.step + 1} of ${l.total}` : "Done";
+  $("prompt").textContent = running ? l.prompt : (l.saved || "Done");
+  $("hint").textContent = l.hint;
+  $("holdbar").firstElementChild.style.width = `${Math.round(l.hold * 100)}%`;
+  $("warn").textContent = l.ambiguous ? "More than one channel is moving - move only the highlighted control."
+    : (running && l.candidate ? `Seeing CH${l.candidate}... keep holding` : "");
+  $("found").textContent = l.found.map(f =>
+    `${LABEL[f.target] ?? f.target}: ${f.source ? `CH${f.source.ch}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("   ");
+}
+
+let socket = null;
+const send = (cmd, extra = {}) => socket && socket.readyState === 1 && socket.send(JSON.stringify({ cmd, ...extra }));
+$("modeSel").onchange = e => send("set_mode", { mode: Number(e.target.value) });
+$("bStart").onclick = () => send("learn_start");
+$("bSkip").onclick = () => send("learn_skip");
+$("bCancel").onclick = () => send("learn_cancel");
+addEventListener("keydown", e => {
+  if (!SETUP) return;
+  if (e.key === "s" || e.key === "S") send("learn_skip");
+  if (e.key === "Escape") send("learn_cancel");
+});
+
+// ---------------- render loop: newest state, once per frame ----------------
+let latest = null, dirty = false;
+function frame() {
+  requestAnimationFrame(frame);
+  if (!dirty || !latest) return;
+  dirty = false;
+  render(latest);
+}
+requestAnimationFrame(frame);
+
+// ---------------- websocket, auto-reconnect ----------------
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  socket = ws;
+  ws.onmessage = e => { latest = JSON.parse(e.data); dirty = true; };
+  ws.onclose = () => {
+    if (latest) { latest = { ...latest, connected: false }; dirty = true; }
+    setTimeout(connect, 1000);
+  };
+}
+// ?nosocket=1: no server; an embedding page drives it through overlaySetState(state).
+window.overlaySetState = s => { latest = s; dirty = true; };
+if (q.get("nosocket") === "1") {
+  addEventListener("message", e => { if (e.data && e.data.overlayState) window.overlaySetState(e.data.overlayState); });
+} else {
+  connect();
+}
+</script>
+</body>
+</html>

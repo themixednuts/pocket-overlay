@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# EdgeTX commit the conformance tests check against (the one this was developed with).
+env:
+  EDGETX_COMMIT: 61aa7a44c9ee9c377119d78afd3355274f4d07fd
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fetch EdgeTX source (for the firmware conformance tests)
+        shell: bash
+        run: |
+          git init -q ref/edgetx
+          cd ref/edgetx
+          git remote add origin https://github.com/EdgeTX/edgetx.git
+          git sparse-checkout set --no-cone 'radio/src/'
+          git fetch -q --depth 1 --filter=blob:none origin "$EDGETX_COMMIT"
+          git checkout -q FETCH_HEAD
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Includes the headless-Chrome render tests; the runners come with Chrome.
+      - name: Test
+        run: cargo test

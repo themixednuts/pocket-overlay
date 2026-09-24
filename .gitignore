@@ -1,0 +1,8 @@
+/target
+/overlay.toml
+# EdgeTX source checkout for the conformance tests (see README)
+/ref/edgetx
+# downloaded product photos and trace previews
+/ref/*.jpg
+/ref/*.png
+/ref/*.json

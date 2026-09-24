@@ -1,0 +1,4 @@
+# Lets the logged-in user read the RadioMaster Pocket (EdgeTX USB joystick) without root.
+# Install:  sudo cp 99-radiomaster-pocket.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+# then unplug and replug the radio.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="4f54", MODE="0660", TAG+="uaccess"

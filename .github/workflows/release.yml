@@ -1,0 +1,92 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the app for Windows, macOS and Linux and attach the
+# downloads to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-latest
+            targets: x86_64-pc-windows-msvc
+          - name: linux-x86_64
+            # oldest supported Ubuntu, so the binary runs on older glibc too
+            os: ubuntu-22.04
+            targets: x86_64-unknown-linux-gnu
+          - name: macos-universal
+            os: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - name: Build
+        shell: bash
+        run: |
+          for t in ${TARGETS//,/ }; do cargo build --release --locked --target "$t"; done
+        env:
+          TARGETS: ${{ matrix.targets }}
+
+      - name: Package
+        shell: bash
+        run: |
+          name="pocket-overlay-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          mkdir "$name"
+          cp README.md "$name/"
+          case "${{ matrix.name }}" in
+            windows-*)
+              cp target/x86_64-pc-windows-msvc/release/pocket-overlay.exe "$name/"
+              7z a "$name.zip" "$name" > /dev/null
+              echo "ASSET=$name.zip" >> "$GITHUB_ENV" ;;
+            macos-*)
+              lipo -create -output "$name/pocket-overlay" \
+                target/aarch64-apple-darwin/release/pocket-overlay \
+                target/x86_64-apple-darwin/release/pocket-overlay
+              tar czf "$name.tar.gz" "$name"
+              echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV" ;;
+            linux-*)
+              cp target/x86_64-unknown-linux-gnu/release/pocket-overlay "$name/"
+              cp packaging/99-radiomaster-pocket.rules "$name/"
+              tar czf "$name.tar.gz" "$name"
+              echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV" ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: pocket-overlay-*
+          generate_release_notes: true
