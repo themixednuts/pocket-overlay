@@ -114,7 +114,7 @@ fn pause_if_double_clicked() {}
 
 async fn run() -> Result<()> {
     let args = parse_args()?;
-    let cfg = Config::load_or_create(&args.config)?;
+    let mut cfg = Config::load_or_create(&args.config)?;
     let (raw_tx, raw_rx) = watch::channel(RawState::default());
 
     if args.monitor {
@@ -133,10 +133,22 @@ async fn run() -> Result<()> {
             }
             return Ok(());
         }
-        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => bail!(
-            "port {port} is already in use by another program. \
-             Start this one with --port <another number>, and use that number in the OBS URL."
-        ),
+        // Another program has the saved port: take any free one and keep it, so the OBS URL
+        // stays the same from now on. The settings page shows the new URL.
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && args.port.is_none() => {
+            let bound = server::bind(0).await.context("starting the web server")?;
+            cfg.port = bound.1.port();
+            cfg.save(&args.config).context("saving the new port")?;
+            eprintln!(
+                "Port {port} is used by another program, so this now uses port {} \
+                 (saved for next time). Put the new URL in OBS.",
+                cfg.port
+            );
+            bound
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            bail!("port {port} is already in use by another program. Pick another --port.")
+        }
         Err(e) => return Err(e).context("starting the web server"),
     };
     let (width, height) = cfg.obs_source_size();

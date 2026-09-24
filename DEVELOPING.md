@@ -52,7 +52,7 @@ pocket-overlay --replay flight.txt  # play a recording back (`-` = stdin)
 pocket-overlay --config <file> --port <n>
 ```
 
-If the port is taken by a running pocket-overlay (it answers `/state`), a second copy opens that one's settings page and exits; if something else has the port, it says so and exits with an error.
+If the port is taken by a running pocket-overlay (it answers `/state`), a second copy opens that one's settings page and exits. If another program has the port from the settings file, it takes a random free port and saves it, so the OBS URL stays the same from then on; a port given with `--port` is used as is, or it exits with an error.
 
 The OBS source is `http://127.0.0.1:7878/`, 680 wide and 830 tall (less with the readout or channel bars hidden; the setup page and the console show the size for the saved choice).
 

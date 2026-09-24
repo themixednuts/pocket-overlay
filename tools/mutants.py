@@ -106,6 +106,8 @@ MUTANTS = [
     ("setup page's radio scrolls away with the settings", "web/index.html",
      "body.setup { background: #0e0f11; display: grid; height: 100vh; }",
      "body.setup { background: #0e0f11; overflow: auto; }", "blackbox_render", "everything_stays"),
+    ("a moved port isn't saved (the OBS URL would change every start)", "src/main.rs",
+     'cfg.save(&args.config).context("saving the new port")?;', "", "blackbox_ws", "moves_to_a_free_one"),
     ("descriptor ignored", "src/input.rs",
      "state.layout = describe(&l);\n                    layout = l;", "state.layout = describe(&l);",
      "blackbox_ws", "uses_the_layout"),

@@ -514,13 +514,78 @@ async fn a_second_copy_hands_over_to_the_first() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_port_taken_by_another_program_says_so() {
+async fn a_port_asked_for_but_taken_by_another_program_says_so() {
     // something else listening (and never answering)
     let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let out = second_copy(other.local_addr().unwrap().port());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{err}");
     assert!(err.contains("in use by another program"), "{err}");
+}
+
+#[test]
+fn a_saved_port_taken_by_another_program_moves_to_a_free_one_for_good() {
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = other.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("overlay.toml");
+    pocket_overlay::config::Config {
+        port: taken,
+        ..Default::default()
+    }
+    .save(&cfg)
+    .unwrap();
+
+    let (moved, log) = start_from_settings(&cfg);
+    assert_ne!(moved, taken);
+    let notice = format!("Port {taken} is used by another program, so this now uses port {moved}");
+    assert!(log.iter().any(|l| l.contains(&notice)), "{log:#?}");
+    let saved = std::fs::read_to_string(&cfg).unwrap();
+    assert!(saved.contains(&format!("port = {moved}")), "{saved}");
+
+    // next time it goes straight to the saved port, so the OBS URL keeps working
+    let (again, log) = start_from_settings(&cfg);
+    assert_eq!(again, moved, "{log:#?}");
+    assert!(
+        !log.iter().any(|l| l.contains("another program")),
+        "{log:#?}"
+    );
+}
+
+/// Starts the app with the port from its settings file, and returns the port it serves on
+/// and what it printed up to then. The app is stopped again.
+fn start_from_settings(cfg: &std::path::Path) -> (u16, Vec<String>) {
+    use std::io::{BufRead, BufReader};
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
+        .args(["--replay", "-", "--no-browser", "--config"])
+        .arg(cfg)
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let stderr = child.stderr.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let _ = tx.send(line);
+        }
+    });
+    let mut log = Vec::new();
+    let port = loop {
+        let line = rx
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("never started: {log:#?}"));
+        let port = line
+            .split_once("OBS Browser Source:  http://127.0.0.1:")
+            .and_then(|(_, rest)| rest.split('/').next()?.parse().ok());
+        log.push(line);
+        if let Some(port) = port {
+            break port;
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    (port, log)
 }
 
 /// Runs the app on `port` until it exits.
