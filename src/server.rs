@@ -159,7 +159,7 @@ impl Switching {
                 self.inner = Some(listener);
                 self.shared = shared;
                 if shared {
-                    print_lan_urls(self.port);
+                    print_lan_urls(self.port, true);
                 } else {
                     eprintln!("Other PCs can no longer show the overlay.");
                 }
@@ -181,8 +181,8 @@ impl Switching {
     }
 }
 
-/// Prints the OBS address for other PCs.
-pub fn print_lan_urls(port: u16) {
+/// Prints the OBS address for other PCs, and while they're shut out, how to let them in.
+pub fn print_lan_urls(port: u16, shared: bool) {
     let network::Address { name, ip } = network::address();
     let urls: Vec<String> = [name, ip.map(|ip| ip.to_string())]
         .into_iter()
@@ -191,8 +191,13 @@ pub fn print_lan_urls(port: u16) {
         .collect();
     if urls.is_empty() {
         eprintln!("  On another PC:       (no network found)");
-    } else {
-        eprintln!("  On another PC:       {}", urls.join("  or  "));
+        return;
+    }
+    eprintln!("  On another PC:       {}", urls.join("  or  "));
+    if !shared {
+        eprintln!(
+            "                       (switch on \"Other PC\" in the settings first, or start with --lan)"
+        );
     }
 }
 

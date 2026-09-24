@@ -127,6 +127,9 @@ pub struct Config {
     /// Show the channel bars under the radio.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub show_channels: bool,
+    /// Show the switch labels (SA, SB... with their positions) around the radio.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_labels: bool,
     /// Let OBS on other PCs in the home network show the overlay (they can only watch).
     #[serde(default, skip_serializing_if = "is_false")]
     pub lan: bool,
@@ -154,6 +157,7 @@ impl Default for Config {
             accent: None,
             show_readout: true,
             show_channels: true,
+            show_labels: true,
             lan: false,
             // Mode 2, AETR.
             sticks: Sticks {

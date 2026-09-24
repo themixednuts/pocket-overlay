@@ -282,6 +282,11 @@
       <div class="ctl">
         <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" aria-label="Show the channel bars" checked></label>
       </div>
+
+      <span class="label">Labels</span>
+      <div class="ctl">
+        <label class="toggle"><input type="checkbox" role="switch" id="showLabels" data-test="show-labels" aria-label="Show the switch labels" checked></label>
+      </div>
     </div>
   </section>
 
@@ -315,8 +320,8 @@ if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.ge
 const OTHER_PC = /^https?:$/.test(location.protocol) && !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 const SETUP = q.get("setup") === "1" && !OTHER_PC;
 const SIDES = q.get("sides") === "1";
-// ?readout=0/1 and ?channels=0/1 override the saved choice for one page
-const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels");
+// ?readout=0/1, ?channels=0/1 and ?labels=0/1 override the saved choice for one page
+const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels"), LABELS_PARAM = q.get("labels");
 const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
 const DEBUG = q.get("debug") === "1";
 const SKIN_PARAM = q.get("skin"); // a skin name, or "none" for the built-in drawing
@@ -370,14 +375,20 @@ function applyParts(readout, channels) {
   document.documentElement.style.setProperty("--draw-aspect", ((vbRight - vbLeft) / vbHeight(readout, channels)).toFixed(4));
   $("root").dataset.parts = key;
 }
+// The switch labels around the radio; they sit inside the drawing, so its size stays.
+function applyLabels(labels) {
+  $("tags").style.display = labels ? "" : "none";
+  $("root").dataset.labels = +labels;
+}
 const showPart = (param, saved) => (param === null ? saved : param !== "0");
 let showPreview; // the setup page's pick until the server echoes it
 function savedParts(s) {
-  const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false };
-  if (showPreview && showPreview.readout === saved.readout && showPreview.channels === saved.channels) showPreview = undefined;
+  const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false, labels: s.show_labels !== false };
+  if (showPreview && ["readout", "channels", "labels"].every(k => showPreview[k] === saved[k])) showPreview = undefined;
   return showPreview || saved;
 }
 applyParts(showPart(READOUT_PARAM, true), showPart(CHANNELS_PARAM, true));
+applyLabels(showPart(LABELS_PARAM, true));
 if (!SIDES) { $("sideL").style.display = "none"; $("sideR").style.display = "none"; }
 if (DEBUG) $("debug").style.display = "block";
 
@@ -643,6 +654,7 @@ function render(s) {
 
   const parts = savedParts(s);
   applyParts(showPart(READOUT_PARAM, parts.readout), showPart(CHANNELS_PARAM, parts.channels));
+  applyLabels(showPart(LABELS_PARAM, parts.labels));
   if (!s.connected) {
     readoutText.replaceChildren();
     el("tspan", { class: "k" }, readoutText).textContent = "NO SIGNAL";
@@ -703,6 +715,7 @@ function renderSetup(s) {
   $("showReadout").checked = parts.readout;
   $("modeSel").disabled = !parts.readout; // it only names the readout's values
   $("showChannels").checked = parts.channels;
+  $("showLabels").checked = parts.labels;
   $("obsSize").textContent = `680 × ${obsHeight(parts.readout, parts.channels)}`;
   if (s.skin_rev !== skinsRev) {
     skinsRev = s.skin_rev;
@@ -834,11 +847,12 @@ $("accentPick").oninput = e => chooseAccent(e.target.value, true);
 $("accentPick").onchange = e => chooseAccent(e.target.value);
 $("accentReset").onclick = () => chooseAccent(null);
 function sendShow() {
-  showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked };
+  showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked, labels: $("showLabels").checked };
   send("set_show", showPreview);
 }
 $("showReadout").onchange = sendShow;
 $("showChannels").onchange = sendShow;
+$("showLabels").onchange = sendShow;
 
 // ---------------- skins ----------------
 // A skin wraps the radio's body like a vinyl skin: any PNG, scaled to cover the body and

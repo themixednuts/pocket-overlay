@@ -842,6 +842,66 @@ fn setup_page_shows_how_each_control_is_wired() {
 }
 
 #[test]
+fn switch_labels_can_be_hidden() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    let obs = Page::open_sized(&ov, "?trail=0", (680, 830)).unwrap();
+    // a scene that keeps the labels, whatever is saved
+    let pinned = Page::open_sized(&ov, "?trail=0&labels=1", (680, 830)).unwrap();
+    show(&mut ov, &obs, &Radio::default());
+    let labels_are = |page: &Page, shown: bool| {
+        page.wait_until(
+            if shown {
+                "labels shown"
+            } else {
+                "labels hidden"
+            },
+            &format!(
+                "document.getElementById('root').dataset.labels === '{}'",
+                u8::from(shown)
+            ),
+        );
+        // every label: drawn or not at all
+        let widths = page.eval(
+            "JSON.stringify(['sa','sb','sc','sd','se','s1'].map(k => \
+             document.querySelector(`[data-test=tag-${k}]`).getBoundingClientRect().width))",
+        );
+        let widths: Vec<f64> = serde_json::from_str(widths.as_str().unwrap()).unwrap();
+        assert!(
+            widths.iter().all(|&w| (w > 0.0) == shown),
+            "label widths {widths:?}, shown {shown}"
+        );
+    };
+    let view_box =
+        |page: &Page| page.eval("document.getElementById('root').getAttribute('viewBox')");
+    let toggle = || setup.eval("document.querySelector('[data-test=show-labels]').click()");
+
+    labels_are(&obs, true);
+    let before = view_box(&obs);
+    toggle();
+    labels_are(&obs, false);
+    labels_are(&pinned, true);
+    obs.screenshot("no-labels");
+    // they're inside the drawing: nothing moves and the OBS size stays
+    assert_eq!(view_box(&obs), before);
+    assert_eq!(
+        setup.eval("document.querySelector('[data-test=obs-size]').textContent"),
+        "680 × 830"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ov.config_text().contains("show_labels = false") {
+        assert!(Instant::now() < deadline, "not saved: {}", ov.config_text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    toggle();
+    labels_are(&obs, true);
+}
+
+#[test]
 fn obs_on_another_pc_shows_the_overlay() {
     let _slot = browser_slot();
     let mut ov = Overlay::start();

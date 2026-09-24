@@ -19,6 +19,8 @@ Run it with no options: its settings page opens in your browser, with the addres
 to OBS as a Browser Source. Running it again while it runs opens that page again.
 
   --demo            fake radio input, to set up the OBS scene without the radio
+  --lan             let OBS on other PCs in this network show the overlay (saved; same
+                    as the \"Other PC\" switch on the settings page)
   --no-browser      don't open the settings page at start
   --monitor         print raw channel values in the terminal instead of serving
   --record <file>   save every report from the radio to a file
@@ -39,6 +41,7 @@ struct Args {
     config: PathBuf,
     port: Option<u16>,
     browser: bool,
+    lan: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -48,6 +51,7 @@ fn parse_args() -> Result<Args> {
         config: Config::default_path(),
         port: None,
         browser: true,
+        lan: false,
     };
     let mut record = None;
     let mut it = std::env::args().skip(1);
@@ -61,6 +65,7 @@ fn parse_args() -> Result<Args> {
             "--record" => record = Some(PathBuf::from(value("--record", &mut it)?)),
             "--monitor" => args.monitor = true,
             "--no-browser" => args.browser = false,
+            "--lan" => args.lan = true,
             "--config" => args.config = value("--config", &mut it)?.into(),
             "--port" => args.port = Some(value("--port", &mut it)?.parse().context("--port")?),
             "-h" | "--help" => {
@@ -122,6 +127,11 @@ async fn run() -> Result<()> {
         return monitor(raw_rx).await;
     }
 
+    if args.lan && !cfg.lan {
+        cfg.lan = true;
+        cfg.save(&args.config)
+            .context("saving sharing with other PCs")?;
+    }
     let port = args.port.unwrap_or(cfg.port);
     let listener = match network::listen(port, cfg.lan).await {
         Ok(bound) => bound,
@@ -161,9 +171,7 @@ async fn run() -> Result<()> {
     );
     eprintln!("  Settings:            http://127.0.0.1:{port}/?setup=1");
     eprintln!("  OBS Browser Source:  http://127.0.0.1:{port}/   ({width} x {height})");
-    if cfg.lan {
-        server::print_lan_urls(port);
-    }
+    server::print_lan_urls(port, cfg.lan);
 
     let engine = Engine::new(cfg.clone(), args.config.clone());
     let (state_tx, state_rx) = watch::channel(engine.state());

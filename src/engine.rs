@@ -36,10 +36,13 @@ pub enum Command {
     SetAccent {
         accent: Option<String>,
     },
-    /// `{"cmd":"set_show","readout":true,"channels":false}`: what shows under the radio.
+    /// `{"cmd":"set_show","readout":true,"channels":false,"labels":true}`: what shows
+    /// under and around the radio (the switch labels, if left out).
     SetShow {
         readout: bool,
         channels: bool,
+        #[serde(default = "yes")]
+        labels: bool,
     },
     /// `{"cmd":"set_lan","on":true}`: let OBS on other PCs in the network show the overlay.
     SetLan {
@@ -48,6 +51,10 @@ pub enum Command {
     /// From the server: the port couldn't be opened to other PCs, with the reason.
     #[serde(skip)]
     LanFailed(String),
+}
+
+fn yes() -> bool {
+    true
 }
 
 const TICK: Duration = Duration::from_millis(50);
@@ -166,11 +173,15 @@ impl Engine {
                 }
             }
             Command::SkinsChanged => self.skin_rev += 1,
-            Command::SetShow { readout, channels } => {
-                if (readout, channels) != (self.config.show_readout, self.config.show_channels) {
-                    self.config.show_readout = readout;
-                    self.config.show_channels = channels;
-                    self.save("what shows under the radio");
+            Command::SetShow {
+                readout,
+                channels,
+                labels,
+            } => {
+                let c = &mut self.config;
+                if (readout, channels, labels) != (c.show_readout, c.show_channels, c.show_labels) {
+                    (c.show_readout, c.show_channels, c.show_labels) = (readout, channels, labels);
+                    self.save("what shows under and around the radio");
                 }
             }
             Command::SetLan { on } => {

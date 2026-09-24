@@ -17,7 +17,7 @@ Keep `pocket-overlay` open while you stream. Open it again to get back to its se
 
 - **The wrong thing moves:** click **Detect channels** on the settings page.
 - **OBS shows nothing:** open `pocket-overlay` before OBS, or refresh the source.
-- **OBS is on another PC:** run `pocket-overlay` on the PC the radio is plugged into, switch on **Other PC** next to the OBS URL, and use the URL it shows. Allow it if Windows asks.
+- **OBS is on another PC:** run `pocket-overlay` on the PC the radio is plugged into, switch on **Other PC** next to the OBS URL (or start it with `--lan`), and use the URL it shows. Allow it if Windows asks.
 - **Windows warns you:** click **More info**, then **Run anyway**.
 - **Mac won't open it:** go to System Settings → Privacy & Security and click **Open Anyway**.
 - **Linux:** allow access once with `sudo cp 99-radiomaster-pocket.rules /etc/udev/rules.d/`, then replug the radio.

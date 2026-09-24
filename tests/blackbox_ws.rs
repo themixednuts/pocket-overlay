@@ -1036,6 +1036,30 @@ async fn strip_under_the_radio_can_be_hidden() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn switch_labels_can_be_hidden() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["show_labels"], json!(true));
+
+    let show = |labels: Option<bool>| {
+        let mut cmd = json!({ "cmd": "set_show", "readout": true, "channels": true });
+        if let Some(labels) = labels {
+            cmd["labels"] = json!(labels);
+        }
+        cmd
+    };
+    ws.send_json(show(Some(false))).await;
+    ws.wait_for("labels hidden", |s| s["show_labels"] == json!(false))
+        .await;
+    assert!(ov.config_text().contains("show_labels = false"));
+    // a command from before labels could be hidden shows them
+    ws.send_json(show(None)).await;
+    ws.wait_for("labels back", |s| s["show_labels"] == json!(true))
+        .await;
+    assert!(!ov.config_text().contains("show_labels"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn no_channel_detection_without_a_radio() {
     // nothing plugged in yet
     let mut ov = Overlay::start();

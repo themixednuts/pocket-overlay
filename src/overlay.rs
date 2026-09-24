@@ -37,6 +37,8 @@ pub struct OverlayState {
     /// Which parts show under the radio.
     pub show_readout: bool,
     pub show_channels: bool,
+    /// And the switch labels around it.
+    pub show_labels: bool,
     /// Other PCs in the home network may show the overlay, and why that failed if it did.
     pub lan: bool,
     pub lan_error: Option<String>,
@@ -98,6 +100,7 @@ pub fn map(
         accent: cfg.accent.clone(),
         show_readout: cfg.show_readout,
         show_channels: cfg.show_channels,
+        show_labels: cfg.show_labels,
         lan: cfg.lan,
         lan_error: None,
         demo: raw.demo,

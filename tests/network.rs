@@ -184,28 +184,64 @@ async fn other_pcs_use_this_pcs_name_and_nothing_else() {
         .expect("its own page connects");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn starts_shared_and_says_where() {
-    let ov = shared();
-    let Some(addr) = lan(ov.port) else { return };
-    assert!(reachable(addr, true));
+/// The console's address for other PCs, checked to have both URLs, and the line after it
+/// (empty if there's none yet).
+fn console_address(ov: &Overlay, addr: SocketAddr) -> String {
     let deadline = Instant::now() + Duration::from_secs(5);
-    let line = loop {
+    let (line, next) = loop {
         let log = ov.log.lock().unwrap().clone();
-        if let Some(line) = log.into_iter().find(|l| l.contains("On another PC:")) {
-            break line;
+        if let Some(i) = log.iter().position(|l| l.contains("On another PC:")) {
+            // give a following line a moment to arrive
+            std::thread::sleep(Duration::from_millis(200));
+            let log = ov.log.lock().unwrap().clone();
+            break (log[i].clone(), log.get(i + 1).cloned().unwrap_or_default());
         }
         assert!(
             Instant::now() < deadline,
-            "no address printed for other PCs"
+            "no address printed for other PCs: {log:?}"
         );
         std::thread::sleep(Duration::from_millis(20));
     };
     assert!(line.contains(&format!("http://{addr}/")), "{line}");
     if let Some(name) = pocket_overlay::network::address().name {
         assert!(
-            line.contains(&format!("http://{name}:{}/", ov.port)),
+            line.contains(&format!("http://{name}:{}/", addr.port())),
             "{line}"
         );
     }
+    next
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn starts_shared_and_says_where() {
+    let ov = shared();
+    let Some(addr) = lan(ov.port) else { return };
+    assert!(reachable(addr, true));
+    let next = console_address(&ov, addr);
+    assert!(!next.contains("Other PC"), "no hint once shared: {next:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn says_where_and_how_before_it_is_switched_on() {
+    // the address is in the console from the start, with how to let other PCs in
+    let ov = Overlay::start();
+    let Some(addr) = lan(ov.port) else { return };
+    let next = console_address(&ov, addr);
+    assert!(
+        next.contains("\"Other PC\"") && next.contains("--lan"),
+        "{next:?}"
+    );
+    assert!(!reachable(addr, false), "but still closed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lan_flag_switches_it_on_and_saves_it() {
+    let ov = Overlay::launch(&["--replay", "-", "--lan"], None);
+    let Some(addr) = lan(ov.port) else { return };
+    assert!(reachable(addr, true));
+    assert!(ov.config_text().contains("lan = true"), "saved");
+    let mut here = Ws::connect(ov.port).await;
+    here.wait_for("the switch shown on", |s| s["lan"] == json!(true))
+        .await;
+    console_address(&ov, addr);
 }
