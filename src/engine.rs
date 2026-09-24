@@ -14,7 +14,7 @@ use crate::learn::{LearnStatus, Learner};
 use crate::overlay::{self, OverlayState};
 
 /// Commands the page can send over the WebSocket, e.g. `{"cmd":"learn_start"}`.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
     LearnStart,
@@ -26,6 +26,12 @@ pub enum Command {
     SetMode {
         mode: u8,
     },
+    /// `{"cmd":"set_skin","skin":"name"}` (or `null` for the built-in drawing), saved.
+    SetSkin {
+        skin: Option<String>,
+    },
+    /// Sent by the server after a skin file was added, replaced or removed.
+    SkinsChanged,
 }
 
 const TICK: Duration = Duration::from_millis(50);
@@ -39,6 +45,7 @@ pub struct Engine {
     finished: Option<LearnStatus>,
     raw: RawState,
     start: Instant,
+    skin_rev: u32,
 }
 
 impl Engine {
@@ -51,6 +58,7 @@ impl Engine {
             finished: None,
             raw: RawState::default(),
             start: Instant::now(),
+            skin_rev: 0,
         }
     }
 
@@ -60,7 +68,13 @@ impl Engine {
             .as_ref()
             .map(Learner::status)
             .or_else(|| self.finished.clone());
-        overlay::map(&self.config, &self.raw, self.detector.kinds(), learn)
+        overlay::map(
+            &self.config,
+            &self.raw,
+            self.detector.kinds(),
+            learn,
+            self.skin_rev,
+        )
     }
 
     fn now_ms(&self) -> u64 {
@@ -117,11 +131,23 @@ impl Engine {
             Command::SetMode { mode } => {
                 if (1..=4).contains(&mode) && mode != self.config.mode {
                     self.config.mode = mode;
-                    if let Err(e) = self.config.save(&self.config_path) {
-                        eprintln!("couldn't save the stick mode: {e:#}");
-                    }
+                    self.save("the stick mode");
                 }
             }
+            Command::SetSkin { skin } => {
+                let ok = skin.as_deref().is_none_or(crate::skins::valid_name);
+                if ok && skin != self.config.skin {
+                    self.config.skin = skin;
+                    self.save("the skin choice");
+                }
+            }
+            Command::SkinsChanged => self.skin_rev += 1,
+        }
+    }
+
+    fn save(&self, what: &str) {
+        if let Err(e) = self.config.save(&self.config_path) {
+            eprintln!("couldn't save {what}: {e:#}");
         }
     }
 

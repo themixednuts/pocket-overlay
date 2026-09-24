@@ -7,3 +7,4 @@ pub mod input;
 pub mod learn;
 pub mod overlay;
 pub mod server;
+pub mod skins;

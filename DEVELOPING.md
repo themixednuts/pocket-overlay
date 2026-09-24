@@ -32,6 +32,12 @@ In joystick mode EdgeTX runs its mixer every 1 ms and sends a report each cycle,
 
 The reader handles every report. Each page gets at most one update per frame, always the newest (`server::MIN_FRAME`, about 120 a second, or about 64 on Windows because of its timer granularity). A page that stops reading for 5 s is dropped.
 
+### Skins and the local server
+
+A skin is a PNG in `skins/` next to the settings file. It's scaled to cover the body's bounding box and clipped to the traced outline (`#skinWrap`, `#bodyClip`); the shading, outline and every detail are drawn over it. The server stores skins (`GET/PUT/DELETE /skins/{name}`, PNG only, names `[A-Za-z0-9_-]{1,40}`, 20 MB max) and bumps `skin_rev` in the state so open pages reload them.
+
+The server listens on 127.0.0.1 only and answers only requests whose `Host` (and `Origin`, when a browser sends one) is `127.0.0.1:<port>` or `localhost:<port>`. That keeps other websites in the same browser from reaching it, including over the WebSocket, which isn't covered by the browser's cross-site rules.
+
 Settings live in `%APPDATA%\pocket-overlay\overlay.toml` (Windows) or `~/.config/pocket-overlay/overlay.toml`. The setup page (`/?setup=1`) writes them; `--config <file>` points somewhere else.
 
 ## Command-line options
@@ -85,6 +91,7 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - reports never going backwards at 1000/s;
   - throughput (over 180,000 reports/s in a debug build).
 - **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), the gimbals tilting like the real ones (the slot rolls the same way as the knob but less, and foreshortens), paddle lean, what's lit, bars, text, and the setup page.
+- **`skins`**: uploads, lists, chooses and removes skins over HTTP and the WebSocket; rejects path-traversal names, non-PNGs and oversized files; refuses requests and WebSocket connections from other websites. `blackbox_render` checks a skin wraps the body inside the outline with every detail on top, and that `?skin=none` and a misspelt skin fall back to the drawing.
 - **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, a gimbal that slides instead of tilting, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 
 Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mirror. Without Chrome or Edge, the render tests print `SKIPPED` and pass. CI (`.github/workflows/ci.yml`) fetches a pinned EdgeTX commit and runs everything on Windows, macOS and Linux.

@@ -616,3 +616,76 @@ pub mod ws {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// plain HTTP and a test skin
+
+/// A 1 x 1 opaque red PNG.
+pub const RED_PNG: [u8; 70] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+    0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// Minimal HTTP/1.1 request; returns (status, headers, body). `host` overrides the Host
+/// header (for the "other website" tests).
+pub fn http(
+    port: u16,
+    method: &str,
+    path: &str,
+    extra_headers: &[(&str, &str)],
+    body: &[u8],
+) -> (u16, String, Vec<u8>) {
+    use std::io::Read;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nConnection: close\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    if !extra_headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("host"))
+    {
+        req.push_str(&format!("Host: 127.0.0.1:{port}\r\n"));
+    }
+    for (k, v) in extra_headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    s.write_all(req.as_bytes()).unwrap();
+    s.write_all(body).unwrap();
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).unwrap();
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("response head");
+    let head = String::from_utf8_lossy(&raw[..split]).into_owned();
+    let status: u16 = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let mut body = raw[split + 4..].to_vec();
+    if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        body = dechunk(&body);
+    }
+    (status, head, body)
+}
+
+fn dechunk(mut data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let line_end = data.windows(2).position(|w| w == b"\r\n").unwrap();
+        let size =
+            usize::from_str_radix(std::str::from_utf8(&data[..line_end]).unwrap().trim(), 16)
+                .unwrap();
+        data = &data[line_end + 2..];
+        if size == 0 {
+            return out;
+        }
+        out.extend_from_slice(&data[..size]);
+        data = &data[size + 2..];
+    }
+}

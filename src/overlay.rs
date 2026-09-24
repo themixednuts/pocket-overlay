@@ -29,6 +29,9 @@ pub struct OverlayState {
     pub kinds: Vec<ChannelKind>,
     /// Transmitter mode, for labelling the sticks.
     pub mode: u8,
+    /// Default skin, and a counter bumped whenever skin files change (so pages reload it).
+    pub skin: Option<String>,
+    pub skin_rev: u32,
     /// Current channel assignments, for the setup view.
     pub sticks: Sticks,
     pub controls: Controls,
@@ -47,6 +50,7 @@ pub fn map(
     raw: &RawState,
     kinds: Vec<ChannelKind>,
     learn: Option<LearnStatus>,
+    skin_rev: u32,
 ) -> OverlayState {
     let r = &raw.report;
     let s = &cfg.sticks;
@@ -73,6 +77,8 @@ pub fn map(
         channels: (1..=count).map(|ch| r.channel(ch).unwrap_or(0)).collect(),
         kinds,
         mode: cfg.mode,
+        skin: cfg.skin.clone(),
+        skin_rev,
         sticks: cfg.sticks.clone(),
         controls: cfg.controls.clone(),
         learn,
@@ -137,7 +143,7 @@ mod tests {
             layout: String::new(),
             report,
         };
-        let s = map(&Config::default(), &raw, vec![], None);
+        let s = map(&Config::default(), &raw, vec![], None, 0);
         assert_eq!(s.left, Stick { x: -1.0, y: 1.0 });
         assert_eq!(s.right, Stick { x: 0.5, y: -0.5 });
         assert_eq!(
@@ -153,7 +159,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.sticks.left_y.invert = true;
         let raw = RawState::default(); // disconnected: no channels at all
-        let s = map(&cfg, &raw, vec![], None);
+        let s = map(&cfg, &raw, vec![], None, 0);
         assert_eq!(s.left.y, 0.0);
         assert_eq!(s.channels, vec![0; 32]);
 
@@ -169,6 +175,7 @@ mod tests {
             },
             vec![],
             None,
+            0,
         );
         assert_eq!(s.left.y, -1.0);
     }

@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <script src="traced.js"></script>
 <style>
-  /* Query options: ?accent=%2300e0ff &sides=1 &channels=0 &readout=0 &trail=0 &debug=1 &setup=1 */
+  /* Query options: ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0 &readout=0 &trail=0 &debug=1 &setup=1 */
   :root {
     --accent: #39ff88;
     --shell: rgba(58, 52, 47, 0.92);
@@ -51,6 +51,8 @@
   .readout { fill: var(--ink); font-size: 17px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.8); stroke-width: 5px; }
   .readout .k { fill: var(--dim); }
   .offline .dimmable { opacity: .35; }
+  #skinWrap { display: none; }
+  .skinned #skinWrap { display: inline; }
   #focus { display: none; pointer-events: none; }
   #focus circle { fill: none; stroke: var(--warn); stroke-width: 4; animation: pulse 1s ease-in-out infinite; }
   #focus line { stroke: var(--warn); stroke-width: 5; marker-end: url(#arrow); }
@@ -64,6 +66,9 @@
   body.setup #setup { display: block; }
   .devrow { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; align-items: center; }
   #setup select { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 5px 8px; margin-left: 6px; }
+  .skinrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 6px 0; }
+  #setup .filebtn { display: inline-block; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .hint { color: var(--dim); }
   #setup h2 { font-size: 15px; margin: 14px 0 6px; color: var(--dim); font-weight: 500; }
   #setup button { font: inherit; background: #23252a; color: var(--ink); border: 1px solid #454850; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   #setup button.primary { background: var(--accent); color: #07140c; border-color: transparent; font-weight: 700; }
@@ -102,6 +107,7 @@
     <pattern id="grille" width="16" height="16" patternUnits="userSpaceOnUse">
       <circle cx="8" cy="8" r="3" fill="#050506" stroke="#55585e" stroke-width="1"/>
     </pattern>
+    <clipPath id="bodyClip"><path id="bodyClipPath"/></clipPath>
     <clipPath id="wheelClip"><ellipse cx="0" cy="0" rx="34" ry="16"/></clipPath>
     <clipPath id="wheelClipFront"><ellipse cx="0" cy="0" rx="19" ry="9"/></clipPath>
     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
@@ -137,7 +143,10 @@
     <rect id="sbNub" data-test="sb-nub" class="plastic" x="348" width="29" rx="9"/>
     <rect id="scNub" data-test="sc-nub" class="plastic" x="624" width="29" rx="9"/>
     <path id="frontBody" class="shell"/>
-    <path id="frontShade" fill="url(#shellShade)"/>
+    <!-- a skin wraps the body like a vinyl skin: any image, cropped to the radio's outline -->
+    <g id="skinWrap" clip-path="url(#bodyClip)"><image id="skinImage" data-test="skin" preserveAspectRatio="xMidYMid slice"/></g>
+    <path id="frontShade" fill="url(#shellShade)" pointer-events="none"/>
+    <path id="frontOutline" fill="none" stroke="var(--shell-edge)" stroke-width="2" pointer-events="none"/>
     <!-- SA / SD shoulder paddles -->
     <path id="saFront" data-test="sa-front" class="plastic" d="M246 372 L310 351 L319 354 L318 362 L252 383 Z"/>
     <path id="sdFront" data-test="sd-front" class="plastic" d="M756 372 L692 351 L683 354 L684 362 L750 383 Z"/>
@@ -168,8 +177,8 @@
     <rect id="power" x="463" y="604" width="76" height="40" rx="20" fill="#16171a" stroke="#2a8f55" stroke-width="3"/>
     <path d="M494 616 A10 10 0 1 0 508 616 M501 611 V623" fill="none" stroke="#7df2b0" stroke-width="2.5" stroke-linecap="round"/>
     <g id="leftKeys"></g>
-    <circle cx="403" cy="687" r="23" class="key"/><text x="403" y="691" class="keytxt">SYS</text>
-    <circle cx="598" cy="687" r="23" class="key"/><text x="598" y="691" class="keytxt">MDL</text>
+    <g><circle cx="403" cy="687" r="23" class="key"/><text x="403" y="691" class="keytxt">SYS</text></g>
+    <g><circle cx="598" cy="687" r="23" class="key"/><text x="598" y="691" class="keytxt">MDL</text></g>
     <circle cx="501" cy="703" r="50" fill="url(#grille)" stroke="#45474d" stroke-width="2"/>
     <rect x="650" y="619" width="46" height="141" rx="12" class="key"/>
     <rect x="660" y="634" width="26" height="110" rx="6" fill="#0a0a0c" stroke="#8e939a" stroke-width="1.5"/>
@@ -192,6 +201,14 @@
         <option value="4">Mode 4 (throttle left)</option>
       </select>
     </label>
+  </div>
+  <h2>Skin</h2>
+  <p class="hint">Wrap the radio in your own image, like a vinyl skin: carbon fibre, camo, a pattern, your art. Upload any PNG and it's cropped to the radio's shape. Buttons, sticks, switches and the screen stay on top.</p>
+  <div class="skinrow">
+    <label>Showing <select id="skinSel" data-test="skin-select"><option value="">Built-in drawing</option></select></label>
+    <label class="filebtn">Upload PNG&hellip; <input type="file" id="skinFile" accept="image/png" hidden></label>
+    <button id="skinRemove" disabled>Remove</button>
+    <span id="skinMsg" class="hint"></span>
   </div>
   <div id="wizard">
     <div id="step" style="color:var(--dim)">Channel detection</div>
@@ -221,6 +238,8 @@ const CHANNELS = q.get("channels") !== "0";
 const READOUT = q.get("readout") !== "0";
 const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
 const DEBUG = q.get("debug") === "1";
+const SKIN_PARAM = q.get("skin"); // a skin name, or "none" for the built-in drawing
+let shownSkin, skinsRev;
 if (SETUP) document.body.classList.add("setup");
 
 const NS = "http://www.w3.org/2000/svg";
@@ -238,6 +257,12 @@ const pct = v => { const n = Math.round(clamp(v) * 100); return (n > 0 ? "+" : "
 const T = window.TRACED || {};
 $("frontBody").setAttribute("d", T.frontBody || "");
 $("frontShade").setAttribute("d", T.frontBody || "");
+$("frontOutline").setAttribute("d", T.frontBody || "");
+$("bodyClipPath").setAttribute("d", T.frontBody || "");
+{ // the wrap image covers the body's bounding box; the clip trims it to the outline
+  const b = $("frontBody").getBBox();
+  for (const [k, v] of Object.entries({ x: b.x, y: b.y, width: b.width, height: b.height })) $("skinImage").setAttribute(k, v);
+}
 $("antenna").setAttribute("d", T.frontAntenna || "");
 document.querySelectorAll(".side-body").forEach(p => p.setAttribute("d", T.sideBody || ""));
 document.querySelectorAll(".side-grip").forEach(p => p.setAttribute("d", T.sideGrip || ""));
@@ -462,6 +487,7 @@ function mapped(id, v) { $(id).classList.toggle("unmapped", v == null); }
 
 function render(s) {
   const root = $("root");
+  applySkin(SKIN_PARAM === "none" ? null : SKIN_PARAM || s.skin || null, s.skin_rev || 0);
   root.classList.toggle("offline", !s.connected);
   $("power").setAttribute("stroke", s.connected ? "var(--accent)" : "#3a3c41");
   $("power").style.filter = s.connected ? "url(#glow)" : "";
@@ -552,6 +578,13 @@ const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", ri
 function renderSetup(s) {
   $("devName").textContent = s.connected ? s.name : "No radio connected";
   if (document.activeElement !== $("modeSel")) $("modeSel").value = String(s.mode);
+  if (s.skin_rev !== skinsRev) {
+    skinsRev = s.skin_rev;
+    refreshSkins(s.skin);
+  } else if (document.activeElement !== $("skinSel") && $("skinSel").value !== (s.skin || "")) {
+    $("skinSel").value = s.skin || "";
+    $("skinRemove").disabled = !s.skin;
+  }
   $("devLayout").textContent = s.layout ? `(${s.layout})` : "";
 
   const rows = CONTROLS.map(([label, get, want]) => {
@@ -590,6 +623,58 @@ function renderSetup(s) {
 let socket = null;
 const send = (cmd, extra = {}) => socket && socket.readyState === 1 && socket.send(JSON.stringify({ cmd, ...extra }));
 $("modeSel").onchange = e => send("set_mode", { mode: Number(e.target.value) });
+
+// ---------------- skins ----------------
+// A skin wraps the radio's body like a vinyl skin: any PNG, scaled to cover the body and
+// cropped to its outline. Everything else (bezels, buttons, screen, sticks) stays on top.
+function applySkin(name, rev) {
+  const key = name ? `${name}@${rev}` : "";
+  if (key === shownSkin) return;
+  shownSkin = key;
+  const show = (href, skinName) => {
+    const img = $("skinImage");
+    if (href) img.setAttribute("href", href);
+    else img.removeAttribute("href");
+    $("root").classList.toggle("skinned", !!href);
+    $("root").dataset.skin = skinName || "";
+  };
+  if (!name) return show(null);
+  // Load it fully first, so switching never flashes an empty radio; a missing or broken
+  // skin leaves the built-in drawing up.
+  const href = `/skins/${encodeURIComponent(name)}?rev=${rev}`;
+  const probe = new Image();
+  probe.onload = () => probe.decode().catch(() => {}).then(() => { if (shownSkin === key) show(href, name); });
+  probe.onerror = () => { if (shownSkin === key) show(null); };
+  probe.src = href;
+}
+
+async function refreshSkins(selected) {
+  const names = await fetch("/skins").then(r => r.json()).catch(() => []);
+  const sel = $("skinSel");
+  sel.replaceChildren(new Option("Built-in drawing", ""), ...names.map(n => new Option(n, n)));
+  sel.value = names.includes(selected) ? selected : "";
+  $("skinRemove").disabled = !sel.value;
+}
+$("skinSel").onchange = e => {
+  send("set_skin", { skin: e.target.value || null });
+  $("skinRemove").disabled = !e.target.value;
+};
+$("skinFile").onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const name = file.name.replace(/\.png$/i, "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "skin";
+  const r = await fetch(`/skins/${name}`, { method: "PUT", headers: { "Content-Type": "image/png" }, body: file });
+  $("skinMsg").textContent = r.ok ? `Uploaded "${name}".` : await r.text();
+  if (r.ok) send("set_skin", { skin: name });
+  e.target.value = "";
+};
+$("skinRemove").onclick = async () => {
+  const name = $("skinSel").value;
+  if (!name) return;
+  const r = await fetch(`/skins/${name}`, { method: "DELETE" });
+  $("skinMsg").textContent = r.ok ? `Removed "${name}".` : await r.text();
+};
+
 $("bStart").onclick = () => send("learn_start");
 $("bSkip").onclick = () => send("learn_skip");
 $("bCancel").onclick = () => send("learn_cancel");

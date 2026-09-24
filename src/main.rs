@@ -137,7 +137,8 @@ async fn run() -> Result<()> {
     tokio::spawn(engine.run(raw_rx, cmd_rx, state_tx));
     start_input(args.input, &cfg, raw_tx);
 
-    server::serve(listener, state_rx, cmd_tx).await?;
+    let skins = pocket_overlay::skins::Skins::beside(&args.config);
+    server::serve(listener, state_rx, cmd_tx, skins).await?;
     Ok(())
 }
 

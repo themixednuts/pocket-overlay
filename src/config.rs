@@ -60,6 +60,9 @@ pub struct Config {
     /// Transmitter stick mode (1-4); only changes the THR/RUD/ELE/AIL labels.
     #[serde(default = "default_mode")]
     pub mode: u8,
+    /// Skin shown by default (a PNG in the skins folder); none = the built-in drawing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<String>,
     pub sticks: Sticks,
     pub controls: Controls,
 }
@@ -75,6 +78,7 @@ impl Default for Config {
             usb_vid: edgetx::USB_VID,
             usb_pid: edgetx::USB_PID,
             mode: default_mode(),
+            skin: None,
             // Mode 2, AETR.
             sticks: Sticks {
                 left_x: Source {
@@ -165,6 +169,11 @@ impl Config {
     fn validate(&self) -> Result<()> {
         if !(1..=4).contains(&self.mode) {
             bail!("mode must be 1, 2, 3 or 4");
+        }
+        if let Some(skin) = &self.skin
+            && !crate::skins::valid_name(skin)
+        {
+            bail!("skin {skin:?}: names are 1-40 letters, digits, - or _");
         }
         let max = edgetx::AXES + edgetx::BUTTONS;
         let s = &self.sticks;

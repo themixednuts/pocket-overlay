@@ -892,3 +892,150 @@ fn evidence() {
     std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
     eprintln!("evidence: {}", path.display());
 }
+
+// ---------------------------------------------------------------------------------------
+// skins
+
+/// What's drawn on top at a point of the drawing's frame, and whether the skin is showing.
+const PROBE: &str = r#"(() => {
+  const root = document.getElementById("root");
+  const at = (x, y) => {
+    const p = root.createSVGPoint(); p.x = x; p.y = y;
+    const s = p.matrixTransform(root.getScreenCTM());
+    const e = document.elementFromPoint(s.x, s.y);
+    return e ? (e.dataset.test || e.id || e.tagName) : null;
+  };
+  const center = sel => { const b = document.querySelector(sel).getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+  const top = sel => { const [x, y] = center(sel); const e = document.elementFromPoint(x, y); return e ? (e.dataset.test || e.id) : null; };
+  const body = document.getElementById("frontBody"), b = body.getBBox();
+  const inBody = (x, y) => { const p = root.createSVGPoint(); p.x = x; p.y = y; return body.isPointInFill(p); };
+  let outside = null;
+  for (let y = b.y + 3; y < b.y + b.height && !outside; y += 3)
+    for (let x = b.x + 3; x < b.x + 80; x += 3)
+      if (!inBody(x, y)) { outside = [x, y]; break; }
+  return JSON.stringify({
+    skinned: root.classList.contains("skinned"),
+    skin: root.dataset.skin,
+    bodyDisplay: getComputedStyle(body).display,
+    shell: at(215, 520),
+    outsideOutline: outside ? at(...outside) : "none found",
+    speaker: at(501, 703),
+    screenBezel: at(430, 540),
+    knobL: top('[data-test="knob-L"]'),
+    knobR: top('[data-test="knob-R"]'),
+  });
+})()"#;
+
+fn probe(page: &Page) -> Value {
+    serde_json::from_str(page.eval(PROBE).as_str().unwrap()).unwrap()
+}
+
+#[test]
+fn a_skin_wraps_the_body_and_everything_else_stays_on_top() {
+    let mut ov = Overlay::start();
+    let (status, _, _) = common::http(
+        ov.port,
+        "PUT",
+        "/skins/red",
+        &[("Content-Type", "image/png")],
+        &common::RED_PNG,
+    );
+    assert_eq!(status, 204);
+    let Some(page) = Page::open(&ov, "?trail=0&accent=%23ff00ff&skin=red") else {
+        return;
+    };
+    let r = Radio {
+        left_x: 0.5,
+        left_y: -0.5,
+        right_x: -0.25,
+        right_y: 0.75,
+        sa: 1,
+        ..Radio::default()
+    };
+    let m = show(&mut ov, &page, &r);
+    page.wait_until(
+        "skin loaded",
+        "document.getElementById('root').dataset.skin === 'red'",
+    );
+    let p = probe(&page);
+    assert_eq!(p["skinned"], true, "{p}");
+    // like a vinyl skin: on the shell, but cropped to the radio's outline
+    assert_eq!(p["shell"], "skin", "the skin covers the shell: {p}");
+    assert_ne!(
+        p["outsideOutline"], "skin",
+        "the skin stays inside the outline: {p}"
+    );
+    assert_ne!(p["outsideOutline"], "none found", "{p}");
+    // the radio's details are drawn over it
+    assert_ne!(p["speaker"], "skin", "{p}");
+    assert_ne!(p["screenBezel"], "skin", "{p}");
+    assert_eq!(p["knobL"], "knob-L", "{p}");
+    assert_eq!(p["knobR"], "knob-R", "{p}");
+    // and the moving parts still show exactly what the radio is doing
+    for (side, sx, sy) in [("L", r.left_x, r.left_y), ("R", r.right_x, r.right_y)] {
+        let travel = &m[format!("travel-{side}").as_str()];
+        let knob = &m[format!("knob-{side}").as_str()];
+        let nx = (num(&knob["cx"]) - num(&travel["x"])) / num(&travel["w"]) * 2.0 - 1.0;
+        let ny = 1.0 - (num(&knob["cy"]) - num(&travel["y"])) / num(&travel["h"]) * 2.0;
+        approx(nx, f64::from(sx), 0.01, "x with a skin", &m);
+        approx(ny, f64::from(sy), 0.01, "y with a skin", &m);
+    }
+    assert_eq!(m["fill"]["sa-front"], ACCENT, "switches still light up");
+    page.screenshot("skinned");
+}
+
+#[test]
+fn the_saved_skin_shows_without_changing_the_obs_url() {
+    let mut ov = Overlay::start();
+    common::http(
+        ov.port,
+        "PUT",
+        "/skins/red",
+        &[("Content-Type", "image/png")],
+        &common::RED_PNG,
+    );
+    // chosen on the setup page
+    let Some(setup) = Page::open(&ov, "?setup=1") else {
+        return;
+    };
+    setup.wait_until(
+        "skin listed",
+        "[...document.getElementById('skinSel').options].some(o => o.value === 'red')",
+    );
+    setup.eval("const s = document.getElementById('skinSel'); s.value = 'red'; s.dispatchEvent(new Event('change'))");
+    // an OBS page with the plain URL picks it up...
+    let Some(obs) = Page::open(&ov, "?trail=0") else {
+        return;
+    };
+    show(&mut ov, &obs, &Radio::default());
+    obs.wait_until(
+        "skin applied",
+        "document.getElementById('root').dataset.skin === 'red'",
+    );
+    assert_eq!(probe(&obs)["shell"], "skin");
+    // ...and ?skin=none still shows the built-in drawing
+    let Some(plain) = Page::open(&ov, "?trail=0&skin=none") else {
+        return;
+    };
+    show(&mut ov, &plain, &Radio::default());
+    let p = probe(&plain);
+    assert_eq!(p["skinned"], false, "{p}");
+    // the drawn shell (or the shading drawn over it) is what's on top
+    assert!(
+        p["shell"] == "frontBody" || p["shell"] == "frontShade",
+        "{p}"
+    );
+
+    // a skin that doesn't exist (a typo in the OBS URL) leaves the built-in drawing up
+    let Some(typo) = Page::open(&ov, "?trail=0&skin=no-such-skin") else {
+        return;
+    };
+    show(&mut ov, &typo, &Radio::default());
+    std::thread::sleep(Duration::from_millis(500));
+    let p = probe(&typo);
+    assert_eq!(p["skinned"], false, "{p}");
+    assert!(
+        p["shell"] == "frontBody" || p["shell"] == "frontShade",
+        "{p}"
+    );
+}

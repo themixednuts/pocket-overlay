@@ -43,7 +43,8 @@ Then run `./pocket-overlay` from the unzipped folder.
 
 - `pocket-overlay --demo`: everything moves by itself, so you can arrange the OBS scene without the radio.
 - `pocket-overlay --port 7879`: use another port if 7878 is taken, and put the same number in the OBS URL.
-- Add `?accent=%23ff8800` to the OBS URL for another colour, or `?channels=0` to hide the channel bars.
+- **Skins:** wrap the radio in your own image (carbon fibre, camo, your art). On the setup page, click **Upload PNG** and pick it. Any image works; it's cropped to the radio's shape.
+- Add `?accent=%23ff8800` to the OBS URL for another colour, or `?channels=0` to hide the channel bars. Add `?skin=name` to use a different skin in one scene, or `?skin=none` for none.
 - Only the sticks, switches and S1 reach the computer. The menu and trim buttons don't, although trims show as a small shift in the stick position.
 </details>
 
