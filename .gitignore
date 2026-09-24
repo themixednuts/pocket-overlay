@@ -6,3 +6,4 @@
 /ref/*.jpg
 /ref/*.png
 /ref/*.json
+__pycache__/

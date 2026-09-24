@@ -479,6 +479,34 @@ fn pot_channel_bars_and_buttons() {
 }
 
 #[test]
+fn small_deflections_are_drawn_not_deadzoned() {
+    let mut ov = Overlay::start();
+    let Some(page) = Page::open(&ov, "?trail=0") else {
+        return;
+    };
+    // 1% to 5% of travel, the region a deadzone would swallow
+    for v in [10i16, -10, 20, -31, 41, -51] {
+        let f = f32::from(v) / 1024.0;
+        let r = Radio {
+            left_x: f,
+            left_y: -f,
+            right_x: -f,
+            right_y: f,
+            ..Radio::default()
+        };
+        let m = show(&mut ov, &page, &r);
+        for (side, sx, sy) in [("L", r.left_x, r.left_y), ("R", r.right_x, r.right_y)] {
+            let travel = &m[format!("travel-{side}").as_str()];
+            let knob = &m[format!("knob-{side}").as_str()];
+            let nx = (num(&knob["cx"]) - num(&travel["x"])) / num(&travel["w"]) * 2.0 - 1.0;
+            let ny = 1.0 - (num(&knob["cy"]) - num(&travel["y"])) / num(&travel["h"]) * 2.0;
+            approx(nx, f64::from(sx), 0.002, &format!("{side} x at {v}"), &m);
+            approx(ny, f64::from(sy), 0.002, &format!("{side} y at {v}"), &m);
+        }
+    }
+}
+
+#[test]
 fn readout_follows_stick_mode() {
     let cfg = pocket_overlay::config::Config {
         mode: 1,

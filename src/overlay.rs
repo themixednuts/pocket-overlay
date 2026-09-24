@@ -85,11 +85,15 @@ fn value(r: &Report, src: Source) -> f32 {
     if src.invert { -v } else { v }
 }
 
-/// EdgeTX mixes a switch as -100 in the up (away from pilot) position, 0 middle, +100 down.
+/// EdgeTX mixes a switch as -weight in the up (away from pilot) position, exactly 0 in the
+/// middle and +weight down. Reading "clearly not zero" instead of a fraction of full scale
+/// keeps switches right even when the model's mix weight is small (down to ~10%).
+const SWITCH_MIDDLE: f32 = 0.1;
+
 fn switch_pos(v: f32, positions: u8) -> u8 {
     match positions {
-        3 if v < -0.33 => 0,
-        3 if v > 0.33 => 2,
+        3 if v < -SWITCH_MIDDLE => 0,
+        3 if v > SWITCH_MIDDLE => 2,
         3 => 1,
         _ if v > 0.0 => 1,
         _ => 0,
@@ -104,6 +108,19 @@ mod tests {
     fn switch_thresholds() {
         assert_eq!([-1.0, 0.0, 1.0].map(|v| switch_pos(v, 3)), [0, 1, 2]);
         assert_eq!([-1.0, 1.0].map(|v| switch_pos(v, 2)), [0, 1]);
+    }
+
+    #[test]
+    fn low_mix_weights_still_read_right() {
+        // SB mixed at 15% and 50%: EdgeTX sends -w, 0, +w
+        for w in [0.15, 0.5] {
+            assert_eq!(
+                [-w, 0.0, w].map(|v| switch_pos(v, 3)),
+                [0, 1, 2],
+                "weight {w}"
+            );
+            assert_eq!([-w, w].map(|v| switch_pos(v, 2)), [0, 1], "weight {w}");
+        }
     }
 
     #[test]

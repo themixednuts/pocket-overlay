@@ -28,6 +28,8 @@ The overlay shows what your model sends, so it depends on the model's mixes. Ope
 
 ## Good to know
 
+- **It only listens.** You can fly a sim or play a game with the radio as a joystick while the overlay runs. Both see every movement, and the overlay never sends anything to the radio.
+- It shows exactly what the radio sends, with no deadzone or smoothing, up to the radio's full rate of 1000 updates a second.
 - Only the sticks, switches and the S1 wheel reach the computer. The menu buttons and trim buttons don't, although trims show up as a small shift in the stick position.
 - No radio yet? Run `pocket-overlay --demo` and everything moves by itself, so you can arrange the OBS scene.
 - Port 7878 already taken? Run `pocket-overlay --port 7879` and use that number in OBS.

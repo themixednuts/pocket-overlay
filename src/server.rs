@@ -1,6 +1,7 @@
 //! HTTP + WebSocket server for the overlay page.
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::State;
@@ -81,13 +82,22 @@ async fn ws(ws: WebSocketUpgrade, State(app): State<AppState>) -> impl IntoRespo
     ws.on_upgrade(move |socket| session(socket, app))
 }
 
-/// Pushes every state change to the page and forwards its commands to the engine.
+/// Fastest a page is updated: ~120/s (~64/s on Windows, whose timers tick every 15.6 ms),
+/// at least one per 60 Hz frame. The radio can report up to 1000 times a second; in
+/// between, only the newest state is kept, never a queue.
+pub const MIN_FRAME: Duration = Duration::from_millis(8);
+/// A page that stops reading for this long is dropped (it reconnects by itself).
+const SEND_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Pushes state changes to the page and forwards its commands to the engine.
 async fn session(mut socket: WebSocket, mut app: AppState) {
     loop {
         let json =
             serde_json::to_string(&*app.state.borrow_and_update()).expect("state serializes");
-        if socket.send(Message::Text(json.into())).await.is_err() {
-            return;
+        let sent_at = tokio::time::Instant::now();
+        match tokio::time::timeout(SEND_TIMEOUT, socket.send(Message::Text(json.into()))).await {
+            Ok(Ok(())) => {}
+            _ => return,
         }
         loop {
             tokio::select! {
@@ -109,5 +119,7 @@ async fn session(mut socket: WebSocket, mut app: AppState) {
                 },
             }
         }
+        // let a burst settle into one update per frame
+        tokio::time::sleep_until(sent_at + MIN_FRAME).await;
     }
 }

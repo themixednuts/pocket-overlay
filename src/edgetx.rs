@@ -39,7 +39,10 @@ pub const CLASSIC_DESCRIPTOR: [u8; 56] = [
 ];
 
 pub fn classic_layout() -> Layout {
-    Layout::parse(&CLASSIC_DESCRIPTOR).expect("classic descriptor parses")
+    static LAYOUT: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
+    LAYOUT
+        .get_or_init(|| Layout::parse(&CLASSIC_DESCRIPTOR).expect("classic descriptor parses"))
+        .clone()
 }
 
 /// Rust mirror of EdgeTX's classic `usbJoystickUpdate()`: 32 channel outputs to report

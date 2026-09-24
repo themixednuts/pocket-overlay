@@ -291,6 +291,235 @@ async fn demo_mode_moves_everything() {
 }
 
 // ---------------------------------------------------------------------------------------
+// edge cases: rates, many viewers, precision, bad input
+
+/// Channels with the given stick values on CH1-4, everything else at rest.
+fn sticks(v: [i16; 4]) -> [i16; 32] {
+    let mut ch = [0i16; 32];
+    ch[..4].copy_from_slice(&v);
+    for c in &mut ch[8..] {
+        *c = -1024;
+    }
+    ch
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tiny_movements_are_not_deadzoned() {
+    // The overlay applies no deadzone: one EdgeTX unit (0.1%) off centre is shown as such.
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    for v in [1i16, -1, 2, -3, 5, -8, 13, 1023, -1023, 1024, -1024] {
+        let ch = sticks([v, -v, v, -v]);
+        ov.channels(&ch);
+        let state = ws
+            .wait_for("the small value", |s| {
+                is_showing(s, &expected_channels(&ch))
+            })
+            .await;
+        // values are f32; JSON carries the shortest text that reads back as the same f32
+        let f = |p: &str, a: &str| state[p][a].as_f64().unwrap() as f32;
+        let want = f32::from(v) / 1024.0;
+        // default wiring: CH1 right x, CH2 right y, CH3 left y, CH4 left x
+        assert_eq!(f("right", "x"), want, "CH1 = {v}");
+        assert_eq!(f("right", "y"), -want, "CH2 = {}", -v);
+        assert_eq!(f("left", "y"), want, "CH3 = {v}");
+        assert_eq!(f("left", "x"), -want, "CH4 = {}", -v);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn switches_read_right_at_low_mix_weights() {
+    // A model can mix a switch at less than 100%: EdgeTX then sends -w / 0 / +w.
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    for weight in [154i16, 512, 1024] {
+        for (sb, sb_value) in [(0, -weight), (1, 0), (2, weight)] {
+            for (sa, sa_value) in [(0, -weight), (1, weight)] {
+                let mut ch = sticks([0; 4]);
+                ch[4] = sa_value; // CH5 SA
+                ch[5] = sb_value; // CH6 SB
+                ov.channels(&ch);
+                let state = ws
+                    .wait_for("switches", |s| is_showing(s, &expected_channels(&ch)))
+                    .await;
+                assert_eq!(state["sb"], json!(sb), "SB at {sb_value} (weight {weight})");
+                assert_eq!(state["sa"], json!(sa), "SA at {sa_value} (weight {weight})");
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn radio_rate_flood_is_smoothed_and_never_lags() {
+    // 2000 reports/s for 1.5 s, twice the most the radio sends. Viewers get at most
+    // ~120 updates/s (one per display frame), always the newest, and the last position
+    // shows up right after it's sent.
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    ov.channels_fast(&sticks([0; 4]));
+    ws.wait_for("start", |s| s["connected"] == json!(true))
+        .await;
+
+    let counter = {
+        let port = ov.port;
+        tokio::spawn(async move {
+            let mut ws = Ws::connect(port).await;
+            let mut n = 0u32;
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_millis(1500) {
+                if tokio::time::timeout(Duration::from_millis(50), ws.recv())
+                    .await
+                    .is_ok()
+                {
+                    n += 1;
+                }
+            }
+            n
+        })
+    };
+
+    // every report different, back to back, for 1.5 s: far more than the radio's 1000/s
+    let last = sticks([999, -999, 512, -512]);
+    let (mut ov, sent_count, sent) = tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+        let mut n = 0u32;
+        while start.elapsed() < Duration::from_millis(1500) {
+            n += 1;
+            ov.channels_fast(&sticks([(n % 2000) as i16 - 1000, 0, 0, 0]));
+        }
+        ov.channels_fast(&last);
+        (ov, n, std::time::Instant::now())
+    })
+    .await
+    .unwrap();
+    ws.wait_for("the last report", |s| {
+        is_showing(s, &expected_channels(&last))
+    })
+    .await;
+    let lag = sent.elapsed();
+    let updates = counter.await.unwrap();
+    let per_sec = f64::from(updates) / 1.5;
+    let rate = f64::from(sent_count) / 1.5;
+    eprintln!(
+        "sent {rate:.0} reports/s; viewer got {per_sec:.0} updates/s; last position shown {lag:?} after it was sent"
+    );
+    assert!(rate > 2000.0, "test only managed {rate:.0} reports/s");
+    assert!(
+        per_sec <= 140.0,
+        "viewer flooded with {per_sec:.0} updates/s"
+    );
+    // Windows timers tick every ~15.6 ms, so ~64/s there: still one per 60 Hz frame
+    assert!(per_sec >= 55.0, "viewer starved: {per_sec:.0} updates/s");
+    assert!(
+        lag < Duration::from_millis(150),
+        "last position took {lag:?}"
+    );
+    ov.line("disconnect");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn many_viewers_and_one_frozen_one() {
+    // OBS with several browser sources, plus one viewer that stops reading entirely
+    // (a hung tab): the others keep getting live updates.
+    let mut ov = Overlay::start();
+    let frozen = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}/ws", ov.port))
+        .await
+        .unwrap();
+    let mut viewers = Vec::new();
+    for _ in 0..6 {
+        viewers.push(Ws::connect(ov.port).await);
+    }
+    for i in 0..3000i16 {
+        ov.channels_fast(&sticks([i % 1024, 0, 0, 0]));
+    }
+    let last = sticks([-777, 333, 0, 0]);
+    ov.channels_fast(&last);
+    let sent = std::time::Instant::now();
+    for (n, ws) in viewers.iter_mut().enumerate() {
+        ws.wait_for(&format!("viewer {n}"), |s| {
+            is_showing(s, &expected_channels(&last))
+        })
+        .await;
+    }
+    assert!(
+        sent.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        sent.elapsed()
+    );
+    drop(frozen);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rapid_unplug_replug_never_shows_stale_positions() {
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    let mut rng = Rng(42);
+    for _ in 0..30 {
+        let radio = rng.radio();
+        let state = show(&mut ov, &mut ws, &radio).await;
+        assert_reads(&state, &radio);
+        ov.line("disconnect");
+        let state = ws
+            .wait_for("unplugged", |s| s["connected"] == json!(false))
+            .await;
+        assert!(channels_of(&state).iter().all(|v| *v == 0));
+        assert_eq!(state["left"], json!({ "x": 0.0, "y": 0.0 }));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_copy_on_the_same_port_says_why_and_leaves_the_first_alone() {
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
+        .args(["--replay", "-", "--port", &ov.port.to_string(), "--config"])
+        .arg(dir.path().join("overlay.toml"))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("already in use"), "{err}");
+    // the first copy is unaffected
+    let radio = Radio {
+        right_x: 0.75,
+        ..Radio::default()
+    };
+    let state = show(&mut ov, &mut ws, &radio).await;
+    assert_reads(&state, &radio);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn junk_in_the_stream_is_skipped() {
+    let mut ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    let before = Radio {
+        left_x: 0.5,
+        ..Radio::default()
+    };
+    show(&mut ov, &mut ws, &before).await;
+    // not hex, odd length, a report 1 byte short, 1 byte long, a broken descriptor
+    for junk in [
+        "zz",
+        "123",
+        &to_hex(&[0u8; 18]),
+        &to_hex(&[0u8; 21]),
+        "descriptor 05",
+    ] {
+        ov.line(junk);
+    }
+    let after = Radio {
+        left_x: -0.25,
+        sb: 2,
+        ..Radio::default()
+    };
+    let state = show(&mut ov, &mut ws, &after).await;
+    assert_reads(&state, &after);
+    assert_eq!(state["layout"], "EdgeTX classic: 8 axes, 24 buttons");
+}
+
+// ---------------------------------------------------------------------------------------
 // channel-detection wizard
 
 /// Picks one analog control out of the radio.

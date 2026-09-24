@@ -10,6 +10,24 @@ A Rust server reads the radio's USB HID reports, decodes them, and pushes the re
 
 The Pocket's USB report is fixed: EdgeTX builds this radio without the configurable joystick extension (`USBJ_EX`). CH1-8 arrive as 8 analog axes (`channel + 1024`, 0..2048). CH9-32 arrive as 24 buttons, on when the channel is above 0. So SB, SC and S1 need one of CH1-8.
 
+### Sharing the radio with games
+
+The app reads the radio and never writes to it: the `HidBackend`/`HidPort` traits in `src/input.rs` have no write method.
+
+Other programs using the radio as a joystick keep working on every OS:
+
+- **Windows:** hidapi opens with `FILE_SHARE_READ | FILE_SHARE_WRITE`, and each open handle gets its own copy of every report.
+- **Linux:** several processes can open the same hidraw node. Games usually read the separate evdev node anyway.
+- **macOS:** hidapi *seizes* devices by default (`hid_init` sets `kIOHIDOptionsTypeSeizeDevice`). The `macos-shared-device` feature turns that off, `Hidapi::new` makes sure of it, and a macOS-only test checks it in CI.
+
+If another program does hold the radio exclusively, the app says so once and keeps retrying.
+
+### Rates
+
+In joystick mode EdgeTX runs its mixer every 1 ms and sends a report each cycle, over an endpoint with `bInterval = 1`. That's up to 1000 reports a second; with the internal RF module active, the mixer follows the module's timing instead.
+
+The reader handles every report. Each page gets at most one update per frame, always the newest (`server::MIN_FRAME`, about 120 a second, or about 64 on Windows because of its timer granularity). A page that stops reading for 5 s is dropped.
+
 Settings live in `%APPDATA%\pocket-overlay\overlay.toml` (Windows) or `~/.config/pocket-overlay/overlay.toml`. The setup page (`/?setup=1`) writes them; `--config <file>` points somewhere else.
 
 ## Command-line options
@@ -46,7 +64,23 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - The published state must read back the physical positions.
   - It also covers custom descriptors, unplugging, recordings and the stick-mode setting.
   - The detection wizard is driven like a person would drive it, against random channel wiring and reversing.
-- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position, direction glow, paddle lean, what's lit, bars, text, and the setup page.
+  - Edge cases:
+    - no deadzone (a single EdgeTX unit off centre comes through);
+    - switches mixed at low weights;
+    - a 70,000 reports/s flood (at most one update per frame, and the last position shows up promptly);
+    - several viewers plus a frozen one;
+    - rapid unplug cycles;
+    - junk in the stream.
+- **`hid_backend`**: runs the real USB read/reconnect loop against a scripted fake device:
+  - 25 unplug/replug cycles, with nothing stale left on screen;
+  - read errors from a glitchy cable, and a quiet radio that keeps its position;
+  - garbage reports;
+  - a radio locked by another program;
+  - an unreadable descriptor;
+  - two radios plugged in (it picks the Pocket);
+  - reports never going backwards at 1000/s;
+  - throughput (over 180,000 reports/s in a debug build).
+- **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), direction glow, paddle lean, what's lit, bars, text, and the setup page.
 - **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, mirrored glow, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 
 Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mirror. Without Chrome or Edge, the render tests print `SKIPPED` and pass. CI (`.github/workflows/ci.yml`) fetches a pinned EdgeTX commit and runs everything on Windows, macOS and Linux.

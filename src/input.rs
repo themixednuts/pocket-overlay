@@ -52,20 +52,122 @@ pub fn describe(layout: &Layout) -> String {
 // ---------------------------------------------------------------------------------------
 // real radio
 
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
-const READ_TIMEOUT_MS: i32 = 500;
+/// What the reconnect loop needs from a USB HID stack. The real one is hidapi; tests use a
+/// scripted fake to exercise unplugging, stalls and bad data without hardware.
+///
+/// Deliberately read-only: there is no way to send anything to the radio, so the overlay
+/// can't change its state or disturb a game that is using it at the same time.
+pub trait HidBackend {
+    /// Devices with this VID/PID currently plugged in: (key for `open`, product name).
+    fn list(&mut self, vid: u16, pid: u16) -> Vec<(usize, String)>;
+    fn open(&mut self, key: usize) -> Result<Box<dyn HidPort>, String>;
+}
+
+pub trait HidPort {
+    fn report_descriptor(&self, buf: &mut [u8]) -> Result<usize, String>;
+    /// `Ok(0)` when nothing arrived within `timeout_ms`; `Err` once the device is gone.
+    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, String>;
+}
+
+/// How long to wait between reconnect attempts and for each read.
+#[derive(Debug, Clone, Copy)]
+pub struct HidTiming {
+    pub reconnect: Duration,
+    pub read_timeout_ms: i32,
+}
+
+impl Default for HidTiming {
+    fn default() -> Self {
+        Self {
+            reconnect: Duration::from_secs(1),
+            read_timeout_ms: 250,
+        }
+    }
+}
+
+/// hidapi, opened so other programs (a sim, a game) can keep using the radio too.
+pub struct Hidapi {
+    api: HidApi,
+    paths: Vec<std::ffi::CString>,
+}
+
+impl Hidapi {
+    pub fn new() -> Result<Self, String> {
+        let api = HidApi::new().map_err(|e| e.to_string())?;
+        // hidapi seizes devices exclusively on macOS unless told not to (the
+        // `macos-shared-device` feature does this at init too); Windows and Linux always share.
+        #[cfg(target_os = "macos")]
+        api.set_open_exclusive(false);
+        Ok(Self {
+            api,
+            paths: Vec::new(),
+        })
+    }
+
+    /// Whether devices get opened exclusively (only ever true on macOS if misconfigured).
+    pub fn opens_exclusively(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        return self.api.get_open_exclusive();
+        #[cfg(not(target_os = "macos"))]
+        false
+    }
+}
+
+impl HidBackend for Hidapi {
+    fn list(&mut self, vid: u16, pid: u16) -> Vec<(usize, String)> {
+        if self.api.refresh_devices().is_err() {
+            return Vec::new();
+        }
+        self.paths.clear();
+        let mut found = Vec::new();
+        for d in self.api.device_list() {
+            if d.vendor_id() == vid && d.product_id() == pid {
+                found.push((
+                    self.paths.len(),
+                    d.product_string().unwrap_or("EdgeTX joystick").to_owned(),
+                ));
+                self.paths.push(d.path().to_owned());
+            }
+        }
+        found
+    }
+
+    fn open(&mut self, key: usize) -> Result<Box<dyn HidPort>, String> {
+        let path = self.paths.get(key).ok_or("device went away")?;
+        let dev = self.api.open_path(path).map_err(|e| e.to_string())?;
+        Ok(Box::new(dev))
+    }
+}
+
+impl HidPort for HidDevice {
+    fn report_descriptor(&self, buf: &mut [u8]) -> Result<usize, String> {
+        self.get_report_descriptor(buf).map_err(|e| e.to_string())
+    }
+
+    fn read_timeout(&self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, String> {
+        HidDevice::read_timeout(self, buf, timeout_ms).map_err(|e| e.to_string())
+    }
+}
 
 /// Blocking loop: finds the radio by USB VID/PID, publishes every decoded report, and
 /// reconnects when it's unplugged. With `record`, every report is also appended to a file
 /// `run_replay` can play back.
 pub fn run_hid(vid: u16, pid: u16, record: Option<PathBuf>, tx: watch::Sender<RawState>) {
-    let mut api = match HidApi::new() {
-        Ok(api) => api,
-        Err(e) => {
-            eprintln!("failed to initialise HID: {e}");
-            return;
-        }
-    };
+    match Hidapi::new() {
+        Ok(mut backend) => run_hid_with(&mut backend, vid, pid, record, HidTiming::default(), tx),
+        Err(e) => eprintln!("error: can't use USB devices on this computer: {e}"),
+    }
+}
+
+/// `run_hid` against any backend. Returns once nothing is listening any more.
+pub fn run_hid_with(
+    backend: &mut dyn HidBackend,
+    vid: u16,
+    pid: u16,
+    record: Option<PathBuf>,
+    timing: HidTiming,
+    tx: watch::Sender<RawState>,
+) {
     let mut recorder = record.and_then(|p| match Recorder::create(&p) {
         Ok(r) => Some(r),
         Err(e) => {
@@ -74,63 +176,86 @@ pub fn run_hid(vid: u16, pid: u16, record: Option<PathBuf>, tx: watch::Sender<Ra
         }
     });
     let mut waiting_logged = false;
-    loop {
-        match open(&mut api, vid, pid) {
-            Some((dev, name)) => {
-                waiting_logged = false;
-                let (layout, descriptor) = device_layout(&dev);
-                eprintln!("Radio connected: {name}");
-                if layout != edgetx::classic_layout() {
-                    eprintln!("  it reports a non-standard layout ({})", describe(&layout));
+    let mut open_error_logged = None;
+    while !tx.is_closed() {
+        let radios = backend.list(vid, pid);
+        match pick_radio(&radios) {
+            None => {
+                if !waiting_logged {
+                    eprintln!(
+                        "Waiting for the radio: plug it in over USB and choose \"USB Joystick (HID)\" on its screen."
+                    );
+                    waiting_logged = true;
                 }
-                if !name.contains("Pocket") {
-                    eprintln!("  this isn't a Pocket; the drawing will still show a Pocket");
-                }
-                if let Some(r) = recorder.as_mut() {
-                    r.header(&name, &descriptor);
-                }
-                read_until_error(&dev, &name, &layout, recorder.as_mut(), &tx);
-                eprintln!("Radio unplugged; waiting for it to come back.");
-                if let Some(r) = recorder.as_mut() {
-                    r.line("disconnect");
-                }
-                tx.send_replace(RawState::default());
             }
-            None if !waiting_logged => {
-                eprintln!(
-                    "Waiting for the radio: plug it in over USB and choose \"USB Joystick (HID)\" on its screen."
-                );
-                waiting_logged = true;
-            }
-            None => {}
+            Some((key, name)) => match backend.open(key) {
+                Err(e) => {
+                    // e.g. another program holds it exclusively; keep trying quietly
+                    if open_error_logged.as_ref() != Some(&e) {
+                        eprintln!("Found {name} but couldn't open it ({e}); retrying.");
+                        open_error_logged = Some(e);
+                    }
+                }
+                Ok(port) => {
+                    waiting_logged = false;
+                    open_error_logged = None;
+                    if radios.len() > 1 {
+                        eprintln!(
+                            "{} EdgeTX radios are plugged in; using {name}.",
+                            radios.len()
+                        );
+                    }
+                    let (layout, descriptor) = device_layout(port.as_ref());
+                    eprintln!("Radio connected: {name}");
+                    if layout != edgetx::classic_layout() {
+                        eprintln!("  it reports a non-standard layout ({})", describe(&layout));
+                    }
+                    if !name.contains("Pocket") {
+                        eprintln!("  this isn't a Pocket; the drawing will still show a Pocket");
+                    }
+                    if let Some(r) = recorder.as_mut() {
+                        r.header(&name, &descriptor);
+                    }
+                    let gone = read_until_error(
+                        port.as_ref(),
+                        &name,
+                        &layout,
+                        timing,
+                        recorder.as_mut(),
+                        &tx,
+                    );
+                    if !gone {
+                        return; // nobody listening any more
+                    }
+                    eprintln!("Radio unplugged; waiting for it to come back.");
+                    if let Some(r) = recorder.as_mut() {
+                        r.line("disconnect");
+                    }
+                    tx.send_replace(RawState::default());
+                    // look again soon: a flaky cable often comes right back
+                    std::thread::sleep(timing.reconnect / 10);
+                    continue;
+                }
+            },
         }
-        std::thread::sleep(RECONNECT_INTERVAL);
+        std::thread::sleep(timing.reconnect);
     }
 }
 
-fn open(api: &mut HidApi, vid: u16, pid: u16) -> Option<(HidDevice, String)> {
-    api.refresh_devices().ok()?;
-    let info = api
-        .device_list()
-        .find(|d| d.vendor_id() == vid && d.product_id() == pid)?;
-    let name = info
-        .product_string()
-        .unwrap_or("EdgeTX joystick")
-        .to_owned();
-    match info.open_device(api) {
-        Ok(dev) => Some((dev, name)),
-        Err(e) => {
-            eprintln!("found {name} but could not open it: {e}");
-            None
-        }
-    }
+/// With several EdgeTX radios plugged in (they all share one USB ID), prefer the Pocket.
+fn pick_radio(radios: &[(usize, String)]) -> Option<(usize, String)> {
+    radios
+        .iter()
+        .find(|(_, name)| name.contains("Pocket"))
+        .or(radios.first())
+        .cloned()
 }
 
 /// The layout the device announces (and its descriptor bytes), or EdgeTX classic if it
 /// can't be read or parsed.
-fn device_layout(dev: &HidDevice) -> (Layout, Vec<u8>) {
+fn device_layout(dev: &dyn HidPort) -> (Layout, Vec<u8>) {
     let mut buf = [0u8; 4096];
-    match dev.get_report_descriptor(&mut buf) {
+    match dev.report_descriptor(&mut buf) {
         Ok(n) => match Layout::parse(&buf[..n]) {
             Ok(layout) => return (layout, buf[..n].to_vec()),
             Err(e) => {
@@ -145,21 +270,28 @@ fn device_layout(dev: &HidDevice) -> (Layout, Vec<u8>) {
     )
 }
 
+/// Reads until the device goes away (returns true) or nobody is listening (false).
 fn read_until_error(
-    dev: &HidDevice,
+    dev: &dyn HidPort,
     name: &str,
     layout: &Layout,
+    timing: HidTiming,
     mut recorder: Option<&mut Recorder>,
     tx: &watch::Sender<RawState>,
-) {
+) -> bool {
     let classic = edgetx::classic_layout();
+    let (announced_desc, classic_desc) = (describe(layout), describe(&classic));
     let mut warned = false;
     let mut buf = [0u8; 256];
     loop {
-        let n = match dev.read_timeout(&mut buf, READ_TIMEOUT_MS) {
-            Ok(0) => continue, // no new report; EdgeTX only sends while the mixer runs
+        if tx.is_closed() {
+            return false;
+        }
+        let n = match dev.read_timeout(&mut buf, timing.read_timeout_ms) {
+            // Nothing new: keep showing the last position rather than guessing.
+            Ok(0) => continue,
             Ok(n) => n,
-            Err(_) => return,
+            Err(_) => return true,
         };
         let bytes = &buf[..n];
         if let Some(r) = recorder.as_deref_mut() {
@@ -168,9 +300,9 @@ fn read_until_error(
         // Prefer the announced layout; Windows can rebuild descriptors slightly
         // differently, so fall back to classic when only that one fits.
         let (report, used) = match layout.decode(bytes) {
-            Some(r) => (r, layout),
+            Some(r) => (r, &announced_desc),
             None => match classic.decode(bytes) {
-                Some(r) => (r, &classic),
+                Some(r) => (r, &classic_desc),
                 None => {
                     if !warned {
                         eprintln!("ignoring {n}-byte reports that match no known layout");
@@ -185,7 +317,7 @@ fn read_until_error(
             RawState {
                 connected: true,
                 name: name.to_owned(),
-                layout: describe(used),
+                layout: used.clone(),
                 report,
             },
         );

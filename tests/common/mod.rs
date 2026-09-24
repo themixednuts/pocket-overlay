@@ -488,6 +488,11 @@ impl Overlay {
         self.stdin.flush().unwrap();
     }
 
+    /// Sends channels straight through the Rust encoder (fast, for floods).
+    pub fn channels_fast(&mut self, ch: &[i16; edgetx::CHANNELS]) {
+        self.line(&to_hex(&edgetx::encode_classic(ch)));
+    }
+
     pub fn channels(&mut self, ch: &[i16; edgetx::CHANNELS]) {
         let bytes = self.encoder.encode(ch);
         self.last_report = to_hex(&bytes);
@@ -592,6 +597,11 @@ pub mod ws {
                     Err(_) => panic!("timed out waiting for {what}; last state:\n{:#}", self.last),
                 }
             }
+        }
+
+        /// Waits for the next message, whatever it says.
+        pub async fn recv(&mut self) -> Value {
+            self.next().await.clone()
         }
 
         pub async fn command(&mut self, cmd: &str) {
