@@ -671,12 +671,20 @@ function render(s) {
 const CONTROLS = [
   ["Left stick ↔", s => s.sticks.left_x], ["Left stick ↕", s => s.sticks.left_y],
   ["Right stick ↔", s => s.sticks.right_x], ["Right stick ↕", s => s.sticks.right_y],
-  ["SA", s => s.controls.SA, "switch2"], ["SB", s => s.controls.SB, "switch3"],
-  ["SC", s => s.controls.SC, "switch3"], ["SD", s => s.controls.SD, "switch2"],
+  ["SA", s => s.controls.SA, "switch2"], ["SB", s => s.controls.SB, "switch3", "sb"],
+  ["SC", s => s.controls.SC, "switch3", "sc"], ["SD", s => s.controls.SD, "switch2"],
   ["SE", s => s.controls.SE, "switch2"], ["S1", s => s.controls.S1, "analog"],
 ];
 const KIND = { analog: "a stick or pot", switch2: "a 2-position switch", switch3: "a 3-position switch" };
 const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", right_x: "Right ↔" };
+// "CH6", or SB/SC with a channel per position: "CH11↑ CH12− CH13↓"
+const MARKS = [["up", "↑"], ["mid", "−"], ["down", "↓"]];
+const chName = src => src.ch ? `CH${src.ch}`
+  : MARKS.filter(([k]) => src[k]).map(([k, mark]) => `CH${src[k]}${mark}`).join(" ");
+function barCell(v) {
+  const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
+  return `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span>${pct(v)}%</td>`;
+}
 
 function renderSetup(s) {
   $("devDot").className = "dot" + (s.demo ? " demo" : s.connected ? " on" : "");
@@ -697,20 +705,20 @@ function renderSetup(s) {
     showSkinRemove();
   }
 
-  $("map").innerHTML = CONTROLS.map(([label, get, want]) => {
+  $("map").innerHTML = CONTROLS.map(([label, get, want, key]) => {
     const src = get(s);
     if (!src) return `<tr><td>${label}</td><td class="hint">not set</td><td></td></tr>`;
+    // a channel per position: the bar shows where the switch is, as one channel would
+    if (!src.ch) return `<tr><td>${label}</td><td>${chName(src)}</td>${barCell((s[key] ?? 1) - 1)}</tr>`;
     const v = (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1);
     const kind = s.kinds[src.ch - 1];
     // CH9-32 are on/off over USB: fine for a 2-position switch, two positions for the rest.
     const onOff = src.ch > 8 && want !== "switch2";
     // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
     const odd = !onOff && want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
-    const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
     return `<tr><td>${label}</td><td>CH${src.ch}${src.invert ? ' <span class="hint">reversed</span>' : ""}` +
       `${onOff ? ' <span class="hint" title="CH9-32 are on/off over USB, so this shows two positions">on/off</span>' : ""}` +
-      `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}</td>` +
-      `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span>${pct(v)}%</td></tr>`;
+      `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}</td>${barCell(v)}</tr>`;
   }).join("");
 
   const l = s.learn;
@@ -734,7 +742,7 @@ function renderSetup(s) {
   $("warn").textContent = l.ambiguous ? "More than one channel is moving"
     : (l.candidate ? `CH${l.candidate}... keep holding` : "");
   $("found").textContent = l.found.map(f =>
-    `${LABEL[f.target] ?? f.target}: ${f.source ? `CH${f.source.ch}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("  ·  ");
+    `${LABEL[f.target] ?? f.target}: ${f.source ? `${chName(f.source)}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("  ·  ");
 }
 
 // what to paste into OBS

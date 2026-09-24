@@ -12,7 +12,11 @@ A Rust server reads the radio's USB HID reports, decodes them, and pushes the re
 - **`src/engine.rs`**: owns the settings, the channel classifier (`src/detect.rs`) and the detection wizard (`src/learn.rs`), and publishes `OverlayState` (`src/overlay.rs`).
 - **`src/server.rs`**: serves the page and the WebSocket. The page is built into the binary. A `web/` folder in the working directory overrides it, so you can edit and reload without rebuilding.
 
-The Pocket's USB report is fixed: EdgeTX builds this radio without the configurable joystick extension (`USBJ_EX`). CH1-8 arrive as 8 analog axes (`channel + 1024`, 0..2048). CH9-32 arrive as 24 buttons, on when the channel is above 0. Any control can use any channel. On CH9-32 a stick, SB, SC or S1 shows only two positions (the middle of a 3-position switch reads like the end that's off). The detection wizard picks CH1-8 for those when the control is mixed to both kinds.
+The Pocket's USB report is fixed: EdgeTX builds this radio without the configurable joystick extension (`USBJ_EX`). CH1-8 arrive as 8 analog axes (`channel + 1024`, 0..2048). CH9-32 arrive as 24 buttons, on when the channel is above 0. Any control can use any channel. On CH9-32 a stick, SB, SC or S1 shows only two positions (the middle of a 3-position switch reads like the end that's off).
+
+SB and SC can instead have a channel per position (`up`, `mid`, `down` in the settings, two or three of them), which is how game setups often give each position its own button. With none of them on, the switch is in the position left out.
+
+The detection wizard finds all of this. Sticks and S1 are found from one movement. Switches are held in each position in turn (toward you, away, then the middle), and the positions show how the switch is wired: one channel, or a channel per position. A middle that looks like one end on every channel (a switch on one on/off channel) is taken after 2 s without a change. A control mixed to several channels (a copy on a button for a game, or a stick mirrored for two aileron servos) is read from one of them, on CH1-8 when it can be.
 
 ### Sharing the radio with games
 
@@ -80,7 +84,7 @@ The tests treat the app as a black box. They act like a radio on one end and lik
 - **`blackbox_ws`**: models the physical radio (positions, then the model's mixes, then EdgeTX's encoder) and feeds the real binary its USB bytes on stdin.
   - The published state must read back the physical positions.
   - It also covers custom descriptors, unplugging, recordings and the stick-mode setting.
-  - The detection wizard is driven like a person would drive it, against random channel wiring and reversing, and against a model with every switch and the pot on CH9-32.
+  - The detection wizard is driven like a person would drive it, against random channel wiring and reversing, a model with every switch and the pot on CH9-32, a button per switch position, and controls mixed to several channels.
   - Edge cases:
     - no deadzone (a single EdgeTX unit off centre comes through);
     - switches mixed at low weights;

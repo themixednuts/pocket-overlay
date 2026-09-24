@@ -761,30 +761,53 @@ fn setup_page_runs_the_wizard() {
 }
 
 #[test]
-fn setup_page_says_on_off_instead_of_warning() {
-    use pocket_overlay::{config::Source, learn::Target};
+fn setup_page_shows_how_each_control_is_wired() {
+    use pocket_overlay::config::{Mapping, Positions, Source};
+    use pocket_overlay::learn::Target;
     let _slot = browser_slot();
-    // SB on CH12, which is on/off over USB; SC set to the right stick's channel by mistake
+    // SB with a button per end (CH13 up, CH14 down); S1 on CH12, which is on/off over USB;
+    // SC set to the right stick's channel by mistake
     let mut cfg = pocket_overlay::config::Config::default();
-    cfg.controls.sb.as_mut().unwrap().ch = 12;
-    cfg.controls.sc.as_mut().unwrap().ch = 1;
+    cfg.controls.sb = Some(Mapping::Positions(Positions {
+        up: Some(13),
+        mid: None,
+        down: Some(14),
+    }));
+    cfg.controls.s1.as_mut().unwrap().ch = 12;
+    cfg.controls.sc = Some(
+        Source {
+            ch: 1,
+            invert: false,
+        }
+        .into(),
+    );
     let mut ov = Overlay::start_with(Some(&toml::to_string(&cfg).unwrap()));
-    ov.wiring.0.retain(|(t, _)| *t != Target::SB);
-    ov.wiring.0.push((
-        Target::SB,
+    ov.wiring
+        .mixes
+        .retain(|(t, _)| !matches!(t, Target::SB | Target::S1));
+    ov.wiring.mixes.push((
+        Target::S1,
         Source {
             ch: 12,
             invert: false,
         },
     ));
+    ov.wiring.positions = vec![(Target::SB, 0, 13), (Target::SB, 2, 14)];
     let Some(page) = Page::open(&ov, "?setup=1&trail=0") else {
         return;
     };
-    // move both, so the page sees how each channel behaves
-    for (sb, right_x) in [(0, -1.0), (2, -0.6), (0, -0.2), (2, 0.3), (0, 0.8)] {
+    // move them, so the page sees how each channel behaves; SB ends toward you
+    for (sb, right_x, s1) in [
+        (0, -1.0, -1.0),
+        (1, -0.6, 1.0),
+        (0, -0.2, -1.0),
+        (1, 0.3, 1.0),
+        (2, 0.8, -1.0),
+    ] {
         let radio = Radio {
             sb,
             right_x,
+            s1,
             ..Radio::default()
         };
         show(&mut ov, &page, &radio);
@@ -794,19 +817,23 @@ fn setup_page_says_on_off_instead_of_warning() {
             "[...document.querySelectorAll('#map tr')].find(r => r.cells[0].textContent === '{control}')"
         )
     };
+    let text = |control: &str, cell: usize| {
+        page.eval(&format!("{}.cells[{cell}].textContent", row(control)))
+    };
+    let warns = |control: &str| page.eval(&format!("!!{}.querySelector('.warn')", row(control)));
     page.wait_until(
         "the SC warning",
         &format!("!!{}.querySelector('.warn')", row("SC")),
     );
+    assert_eq!(text("SB", 1), "CH13↑ CH14↓");
+    assert_eq!(text("SB", 2), "+100%", "SB is toward you");
+    assert_eq!(text("S1", 1), "CH12 on/off");
     assert_eq!(
-        page.eval(&format!("{}.cells[1].textContent", row("SB"))),
-        "CH12 on/off"
-    );
-    assert_eq!(
-        page.eval(&format!("!!{}.querySelector('.warn')", row("SB"))),
+        warns("S1"),
         Value::Bool(false),
-        "SB on an on/off channel is allowed, not a mistake"
+        "S1 on an on/off channel is allowed, not a mistake"
     );
+    assert_eq!(warns("SB"), Value::Bool(false));
 }
 
 /// Not a check: saves screenshots of named scenarios to target/tmp/gallery-*.png, for

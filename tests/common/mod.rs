@@ -292,17 +292,34 @@ impl Radio {
             Target::S1 => self.s1,
         }
     }
+
+    /// Where a switch is, counting from away from the pilot (SE: 1 = pressed).
+    pub fn position(&self, target: Target) -> u8 {
+        match target {
+            Target::SA => self.sa,
+            Target::SB => self.sb,
+            Target::SC => self.sc,
+            Target::SD => self.sd,
+            Target::SE => self.se as u8,
+            _ => panic!("{target:?} isn't a switch"),
+        }
+    }
 }
 
 /// The model's mixes: which channel each control drives, and whether it's reversed.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Wiring(pub Vec<(Target, Source)>);
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Wiring {
+    pub mixes: Vec<(Target, Source)>,
+    /// Switch positions with a channel of their own, +100 while the switch is there and 0
+    /// otherwise (a button per position, for games): (switch, position, channel).
+    pub positions: Vec<(Target, u8, usize)>,
+}
 
 impl Wiring {
     /// Same as the overlay's default config.
     pub fn default_pocket() -> Self {
         let s = |ch| Source { ch, invert: false };
-        Wiring(vec![
+        Wiring::mixes(vec![
             (Target::RightX, s(1)),
             (Target::RightY, s(2)),
             (Target::LeftY, s(3)),
@@ -316,6 +333,13 @@ impl Wiring {
         ])
     }
 
+    pub fn mixes(mixes: Vec<(Target, Source)>) -> Self {
+        Wiring {
+            mixes,
+            positions: Vec::new(),
+        }
+    }
+
     /// Random channels (analog controls on CH1-8, the rest anywhere) and random reversing.
     pub fn random(rng: &mut Rng) -> Self {
         let mut analog: Vec<usize> = (1..=8).collect();
@@ -323,7 +347,8 @@ impl Wiring {
         rng.shuffle(&mut analog);
         let mut wiring = Vec::new();
         for t in pocket_overlay::learn::Target::ALL {
-            if t.prefers_analog() {
+            // sticks, S1, SB and SC: CH1-8 carry every position
+            if t.positions() != Some(2) {
                 let ch = analog.pop().unwrap();
                 wiring.push((
                     t,
@@ -347,11 +372,12 @@ impl Wiring {
                 },
             ));
         }
-        Wiring(wiring)
+        Wiring::mixes(wiring)
     }
 
+    /// The first channel  is mixed to.
     pub fn get(&self, t: Target) -> Option<Source> {
-        self.0
+        self.mixes
             .iter()
             .find(|(target, _)| *target == t)
             .map(|(_, s)| *s)
@@ -359,9 +385,16 @@ impl Wiring {
 
     pub fn channels(&self, radio: &Radio) -> [i16; edgetx::CHANNELS] {
         let mut ch = [0i16; edgetx::CHANNELS];
-        for (target, src) in &self.0 {
+        for (target, src) in &self.mixes {
             let v = radio.mixer_value(*target) * if src.invert { -1.0 } else { 1.0 };
             ch[src.ch - 1] = (v * 1024.0).round() as i16;
+        }
+        for &(target, position, c) in &self.positions {
+            ch[c - 1] = if radio.position(target) == position {
+                1024
+            } else {
+                0
+            };
         }
         ch
     }

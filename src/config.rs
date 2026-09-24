@@ -31,6 +31,53 @@ const fn ch(ch: usize) -> Option<Source> {
     Some(Source { ch, invert: false })
 }
 
+/// Where SB or SC is read from: one channel, like every other control, or a channel per
+/// position (some models give each position its own button, for games).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum Mapping {
+    Channel(Source),
+    Positions(Positions),
+}
+
+impl Mapping {
+    pub fn uses(&self, ch: usize) -> bool {
+        match self {
+            Mapping::Channel(src) => src.ch == ch,
+            Mapping::Positions(p) => p.channels().contains(&Some(ch)),
+        }
+    }
+}
+
+impl From<Source> for Mapping {
+    fn from(src: Source) -> Self {
+        Mapping::Channel(src)
+    }
+}
+
+/// A channel per switch position, on while the switch is there; at least two of them.
+/// With none on, the switch is in the position that has no channel (the middle, when
+/// only the ends have one).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Positions {
+    /// Away from you (EdgeTX's SB↑).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub up: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mid: Option<usize>,
+    /// Toward you (SB↓).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub down: Option<usize>,
+}
+
+impl Positions {
+    /// Up, middle, down: the order positions are numbered in (0, 1, 2).
+    pub fn channels(&self) -> [Option<usize>; 3] {
+        [self.up, self.mid, self.down]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sticks {
@@ -48,9 +95,9 @@ pub struct Controls {
     #[serde(rename = "SA", default, skip_serializing_if = "Option::is_none")]
     pub sa: Option<Source>,
     #[serde(rename = "SB", default, skip_serializing_if = "Option::is_none")]
-    pub sb: Option<Source>,
+    pub sb: Option<Mapping>,
     #[serde(rename = "SC", default, skip_serializing_if = "Option::is_none")]
-    pub sc: Option<Source>,
+    pub sc: Option<Mapping>,
     #[serde(rename = "SD", default, skip_serializing_if = "Option::is_none")]
     pub sd: Option<Source>,
     #[serde(rename = "SE", default, skip_serializing_if = "Option::is_none")]
@@ -125,8 +172,8 @@ impl Default for Config {
             },
             controls: Controls {
                 sa: ch(5),
-                sb: ch(6),
-                sc: ch(7),
+                sb: ch(6).map(Mapping::from),
+                sc: ch(7).map(Mapping::from),
                 s1: ch(8),
                 sd: ch(9),
                 se: ch(10),
@@ -184,15 +231,20 @@ impl Config {
     pub fn apply(&mut self, found: &[Found]) {
         for f in found {
             let (s, c) = (&mut self.sticks, &mut self.controls);
-            match (f.target, f.source) {
+            // only SB and SC have a channel per position
+            let one = match f.source {
+                Some(Mapping::Channel(src)) => Some(src),
+                _ => None,
+            };
+            match (f.target, one) {
+                (Target::SB, _) => c.sb = f.source,
+                (Target::SC, _) => c.sc = f.source,
                 (Target::LeftX, Some(src)) => s.left_x = src,
                 (Target::LeftY, Some(src)) => s.left_y = src,
                 (Target::RightX, Some(src)) => s.right_x = src,
                 (Target::RightY, Some(src)) => s.right_y = src,
                 (Target::LeftX | Target::LeftY | Target::RightX | Target::RightY, None) => {}
                 (Target::SA, src) => c.sa = src,
-                (Target::SB, src) => c.sb = src,
-                (Target::SC, src) => c.sc = src,
                 (Target::SD, src) => c.sd = src,
                 (Target::SE, src) => c.se = src,
                 (Target::S1, src) => c.s1 = src,
@@ -218,23 +270,40 @@ impl Config {
         // (on/off over USB) a stick, SB, SC or S1 just shows two positions.
         let max = edgetx::CHANNELS;
         let (s, c) = (&self.sticks, &self.controls);
-        let sources = [
+        let one = [
             ("sticks.left_x", Some(s.left_x)),
             ("sticks.left_y", Some(s.left_y)),
             ("sticks.right_x", Some(s.right_x)),
             ("sticks.right_y", Some(s.right_y)),
             ("controls.SA", c.sa),
-            ("controls.SB", c.sb),
-            ("controls.SC", c.sc),
             ("controls.SD", c.sd),
             ("controls.SE", c.se),
             ("controls.S1", c.s1),
         ];
-        for (name, src) in sources {
-            if let Some(src) = src
-                && !(1..=max).contains(&src.ch)
-            {
-                bail!("{name}: ch must be 1..={max}");
+        // (setting, key, channel)
+        let mut channels: Vec<(&str, &str, usize)> = one
+            .into_iter()
+            .filter_map(|(name, src)| Some((name, "ch", src?.ch)))
+            .collect();
+        for (name, m) in [("controls.SB", c.sb), ("controls.SC", c.sc)] {
+            match m {
+                Some(Mapping::Channel(src)) => channels.push((name, "ch", src.ch)),
+                Some(Mapping::Positions(p)) => {
+                    let given = ["up", "mid", "down"].into_iter().zip(p.channels());
+                    let given: Vec<_> = given
+                        .filter_map(|(key, ch)| Some((name, key, ch?)))
+                        .collect();
+                    if given.len() < 2 {
+                        bail!("{name}: give two or three of up, mid and down, or one ch");
+                    }
+                    channels.extend(given);
+                }
+                None => {}
+            }
+        }
+        for (name, key, ch) in channels {
+            if !(1..=max).contains(&ch) {
+                bail!("{name}: {key} must be 1..={max}");
             }
         }
         Ok(())
@@ -248,6 +317,9 @@ const HEADER: &str = "\
 # `ch` values are the channel numbers on your model's MIXES page (1-32). Over USB, CH1-8
 # carry every position and CH9-32 are on/off, so a stick, SB, SC or S1 on CH9-32 shows
 # only two positions.
+#
+# SB and SC can instead have a channel per position, on while the switch is there:
+# `up`, `mid` and `down` (two or three of them; with none on, it's the one left out).
 ";
 
 #[cfg(test)]
@@ -284,12 +356,31 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("overlay.toml");
         let mut no_ch = Config::default();
-        no_ch.controls.sb = ch(0);
+        no_ch.controls.sb = ch(0).map(Mapping::from);
         let mut past_32 = Config::default();
         past_32.sticks.left_x.ch = 33;
+        let positions = |p| {
+            let mut cfg = Config::default();
+            cfg.controls.sc = Some(Mapping::Positions(p));
+            cfg
+        };
+        let only_up = positions(Positions {
+            up: Some(9),
+            ..Positions::default()
+        });
+        let down_past_32 = positions(Positions {
+            up: Some(9),
+            down: Some(40),
+            ..Positions::default()
+        });
         for (cfg, reason) in [
             (no_ch, "controls.SB: ch must be 1..=32"),
             (past_32, "sticks.left_x: ch must be 1..=32"),
+            (
+                only_up,
+                "controls.SC: give two or three of up, mid and down",
+            ),
+            (down_past_32, "controls.SC: down must be 1..=32"),
         ] {
             cfg.save(&path).unwrap();
             let err = format!("{:#}", Config::load_or_create(&path).unwrap_err());
@@ -304,16 +395,34 @@ mod tests {
         let path = dir.path().join("overlay.toml");
         let mut cfg = Config::default();
         let c = &mut cfg.controls;
-        for (i, slot) in [
-            &mut c.sa, &mut c.sb, &mut c.sc, &mut c.sd, &mut c.se, &mut c.s1,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            *slot = ch(9 + i);
-        }
+        (c.sa, c.sd, c.se, c.s1) = (ch(9), ch(10), ch(11), ch(12));
+        (c.sb, c.sc) = (ch(13).map(Mapping::from), ch(14).map(Mapping::from));
         cfg.sticks.right_y.ch = 32;
         cfg.save(&path).unwrap();
+        assert_eq!(Config::load_or_create(&path).unwrap(), cfg);
+    }
+
+    #[test]
+    fn switch_with_a_channel_per_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay.toml");
+        let mut cfg = Config::default();
+        cfg.controls.sb = Some(Mapping::Positions(Positions {
+            up: Some(9),
+            mid: Some(10),
+            down: Some(11),
+        }));
+        cfg.controls.sc = Some(Mapping::Positions(Positions {
+            up: Some(12),
+            mid: None,
+            down: Some(13),
+        }));
+        cfg.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("[controls.SC]\nup = 12\ndown = 13\n"),
+            "{text}"
+        );
         assert_eq!(Config::load_or_create(&path).unwrap(), cfg);
     }
 

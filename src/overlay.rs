@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::config::{Config, Controls, Source, Sticks};
+use crate::config::{Config, Controls, Mapping, Positions, Source, Sticks};
 use crate::detect::ChannelKind;
 use crate::edgetx;
 use crate::hid::Report;
@@ -67,6 +67,12 @@ pub fn map(
         y: value(r, y),
     };
     let sw = |src: Option<Source>, positions| src.map(|src| switch_pos(value(r, src), positions));
+    let sw3 = |m: Option<Mapping>| {
+        m.map(|m| match m {
+            Mapping::Channel(src) => switch_pos(value(r, src), 3),
+            Mapping::Positions(p) => position(p, r),
+        })
+    };
     let count = r.channel_count().max(edgetx::CHANNELS);
 
     OverlayState {
@@ -76,8 +82,8 @@ pub fn map(
         left: stick(s.left_x, s.left_y),
         right: stick(s.right_x, s.right_y),
         sa: sw(c.sa, 2),
-        sb: sw(c.sb, 3),
-        sc: sw(c.sc, 3),
+        sb: sw3(c.sb),
+        sc: sw3(c.sc),
         sd: sw(c.sd, 2),
         se: sw(c.se, 2),
         s1: c.s1.map(|src| value(r, src)),
@@ -105,9 +111,9 @@ fn value(r: &Report, src: Source) -> f32 {
 /// EdgeTX mixes a switch as -weight in the up (away from pilot) position, exactly 0 in the
 /// middle and +weight down. Reading "clearly not zero" instead of a fraction of full scale
 /// keeps switches right even when the model's mix weight is small (down to ~10%).
-const SWITCH_MIDDLE: f32 = 0.1;
+pub(crate) const SWITCH_MIDDLE: f32 = 0.1;
 
-fn switch_pos(v: f32, positions: u8) -> u8 {
+pub(crate) fn switch_pos(v: f32, positions: u8) -> u8 {
     match positions {
         3 if v < -SWITCH_MIDDLE => 0,
         3 if v > SWITCH_MIDDLE => 2,
@@ -115,6 +121,22 @@ fn switch_pos(v: f32, positions: u8) -> u8 {
         _ if v > 0.0 => 1,
         _ => 0,
     }
+}
+
+/// A channel per position: "on" the same way a switch reads "clearly not zero".
+pub(crate) fn is_on(v: i16) -> bool {
+    f32::from(v) / 1024.0 > SWITCH_MIDDLE
+}
+
+/// Where a switch with a channel per position is: the position whose channel is on, or,
+/// with none on, the one without a channel (the middle when only the ends have one).
+fn position(p: Positions, r: &Report) -> u8 {
+    let chans = p.channels();
+    let on = chans
+        .iter()
+        .position(|ch| ch.is_some_and(|ch| is_on(r.channel(ch).unwrap_or(0))));
+    let pos = on.or_else(|| chans.iter().position(Option::is_none));
+    pos.unwrap_or(1) as u8
 }
 
 #[cfg(test)]
@@ -138,6 +160,39 @@ mod tests {
             );
             assert_eq!([-w, w].map(|v| switch_pos(v, 2)), [0, 1], "weight {w}");
         }
+    }
+
+    #[test]
+    fn channel_per_position() {
+        let report = |on: &[usize]| Report {
+            axes: vec![0; 8],
+            buttons: (9..=32).map(|ch| on.contains(&ch)).collect(),
+        };
+        let p = |up, mid, down| Positions { up, mid, down };
+        let read = |ps: Positions, on: &[usize]| position(ps, &report(on));
+        // up and down only: neither on is the middle
+        let ends = p(Some(9), None, Some(11));
+        assert_eq!(
+            [read(ends, &[9]), read(ends, &[]), read(ends, &[11])],
+            [0, 1, 2]
+        );
+        // all three
+        let all = p(Some(9), Some(10), Some(11));
+        assert_eq!(
+            [read(all, &[9]), read(all, &[10]), read(all, &[11])],
+            [0, 1, 2]
+        );
+        // any two: the one left out is where it is with neither on
+        let low = p(None, Some(10), Some(11));
+        assert_eq!(
+            [read(low, &[]), read(low, &[10]), read(low, &[11])],
+            [0, 1, 2]
+        );
+        let high = p(Some(9), Some(10), None);
+        assert_eq!(
+            [read(high, &[9]), read(high, &[10]), read(high, &[])],
+            [0, 1, 2]
+        );
     }
 
     #[test]

@@ -637,7 +637,7 @@ async fn junk_in_the_stream_is_skipped() {
 type Axis = fn(&mut Radio) -> &mut f32;
 
 /// Performs what the wizard asks for, like a person holding the radio would.
-async fn act(ov: &mut Overlay, radio: &mut Radio, target: Target) {
+async fn act(ov: &mut Overlay, ws: &mut Ws, radio: &mut Radio, target: Target) {
     let pause = || tokio::time::sleep(Duration::from_millis(80));
     // a person moving one axis nudges the other one a little
     let (axis, crosstalk): (Axis, Axis) = match target {
@@ -660,22 +660,29 @@ async fn act(ov: &mut Overlay, radio: &mut Radio, target: Target) {
                 pause().await;
             }
         }
-        Target::SA | Target::SD | Target::SB | Target::SC => {
-            let (pos, last): (fn(&mut Radio) -> &mut u8, u8) = match target {
-                Target::SA => (|r| &mut r.sa, 1),
-                Target::SD => (|r| &mut r.sd, 1),
-                Target::SB => (|r| &mut r.sb, 2),
-                _ => (|r| &mut r.sc, 2),
+        // switches: each position in turn (toward you or pressed, away, the middle), held
+        // until the wizard asks for the next
+        _ => {
+            let order: &[u8] = if target.positions() == Some(3) {
+                &[2, 0, 1]
+            } else {
+                &[1, 0]
             };
-            for p in [0, last] {
-                *pos(radio) = p;
+            for (i, &p) in order.iter().enumerate() {
+                let asked = ws.last["learn"]["prompt"].clone();
+                match target {
+                    Target::SA => radio.sa = p,
+                    Target::SB => radio.sb = p,
+                    Target::SC => radio.sc = p,
+                    Target::SD => radio.sd = p,
+                    _ => radio.se = p == 1,
+                }
                 ov.radio(radio);
-                pause().await;
+                if i + 1 < order.len() {
+                    ws.wait_for("the next position", |s| s["learn"]["prompt"] != asked)
+                        .await;
+                }
             }
-        }
-        Target::SE => {
-            radio.se = true;
-            ov.radio(radio);
         }
     }
 }
@@ -728,7 +735,7 @@ async fn run_wizard(ov: &mut Overlay, ws: &mut Ws) -> Value {
     let mut state = ws.wait_for("wizard start", |s| !s["learn"].is_null()).await;
     while let Some(target) = target_of(&state) {
         let step = state["learn"]["step"].as_u64().unwrap();
-        act(ov, &mut radio, target).await;
+        act(ov, ws, &mut radio, target).await;
         state = ws
             .wait_for(&format!("{target:?} to be detected"), |s| {
                 s["learn"]["step"].as_u64() != Some(step)
@@ -746,16 +753,43 @@ async fn run_wizard(ov: &mut Overlay, ws: &mut Ws) -> Value {
     );
     // what it found is exactly how the radio is wired
     for target in Target::ALL {
-        let src = ov.wiring.get(target).unwrap();
-        let found = found_for(&state, target);
-        assert_eq!(found["ch"], json!(src.ch), "{target:?} channel");
-        assert_eq!(
-            found["invert"].as_bool().unwrap_or(false),
-            src.invert,
-            "{target:?} direction"
+        let (found, want) = (
+            found_for(&state, target),
+            expected_found(&ov.wiring, target),
         );
+        let one = |v: &Value| (v["ch"].clone(), v["invert"].as_bool().unwrap_or(false));
+        if want["ch"].is_null() {
+            assert_eq!(found, want, "{target:?}: a channel per position");
+        } else {
+            assert_eq!(one(&found), one(&want), "{target:?}: channel, reversed");
+        }
     }
     state
+}
+
+/// What the wizard should find for `t`: the first channel it's mixed to, or its channel
+/// per position (a 2-position switch is read from the lowest of those).
+fn expected_found(w: &Wiring, t: Target) -> Value {
+    if let Some(src) = w.get(t) {
+        return json!({ "ch": src.ch, "invert": src.invert });
+    }
+    let mut per: Vec<(u8, usize)> = w
+        .positions
+        .iter()
+        .filter(|p| p.0 == t)
+        .map(|p| (p.1, p.2))
+        .collect();
+    per.sort_by_key(|&(_, ch)| ch);
+    if t.positions() == Some(2) {
+        let (position, ch) = per[0];
+        return json!({ "ch": ch, "invert": position == 0 });
+    }
+    let names = ["up", "mid", "down"];
+    Value::Object(
+        per.into_iter()
+            .map(|(position, ch)| (names[usize::from(position)].to_string(), json!(ch)))
+            .collect(),
+    )
 }
 
 async fn learn_random_wiring(seed: u64) {
@@ -807,7 +841,7 @@ async fn wizard_takes_on_off_channels_for_every_control() {
     // Sticks on CH1-4, CH5-8 unused, every switch and the pot on CH9 and up (on/off over
     // USB), some of them reversed.
     let s = |ch, invert| Source { ch, invert };
-    ov.wiring = Wiring(vec![
+    ov.wiring = Wiring::mixes(vec![
         (Target::RightX, s(1, false)),
         (Target::RightY, s(2, false)),
         (Target::LeftY, s(3, false)),
@@ -846,34 +880,78 @@ async fn wizard_takes_on_off_channels_for_every_control() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn wizard_reads_a_switch_on_both_kinds_of_channel_from_the_analog_one() {
+async fn wizard_takes_controls_mixed_to_several_channels() {
     let mut ov = Overlay::start();
-    // SB mixed to CH6 as usual and to CH12 too (on/off, e.g. a button for a game)
-    ov.wiring.0.push((
-        Target::SB,
-        Source {
-            ch: 12,
-            invert: false,
-        },
-    ));
+    let s = |ch, invert| Source { ch, invert };
+    // Copies, e.g. a button for a game besides the usual channel, or two aileron servos.
+    // Each is read from its first channel here, which is the one on CH1-8 where it matters.
+    ov.wiring = Wiring::mixes(vec![
+        (Target::RightX, s(1, false)),
+        (Target::RightX, s(5, true)), // mirrored on another analog channel
+        (Target::RightY, s(2, false)),
+        (Target::LeftY, s(3, false)),
+        (Target::LeftX, s(4, false)),
+        (Target::SB, s(6, false)),
+        (Target::SB, s(12, false)),
+        (Target::SC, s(7, false)),
+        (Target::S1, s(8, false)),
+        (Target::S1, s(13, false)),
+        (Target::SA, s(9, false)),
+        (Target::SA, s(14, true)),
+        (Target::SD, s(10, false)),
+        (Target::SE, s(11, false)),
+        (Target::SE, s(15, false)),
+    ]);
     let mut ws = Ws::connect(ov.port).await;
-    let mut radio = Radio::default();
-    show(&mut ov, &mut ws, &radio).await;
+    run_wizard(&mut ov, &mut ws).await;
+}
 
-    ws.command("learn_start").await;
-    let mut state = ws.wait_for("wizard", |s| !s["learn"].is_null()).await;
-    while target_of(&state) != Some(Target::SB) {
-        let step = state["learn"]["step"].as_u64().unwrap();
-        ws.command("learn_skip").await;
-        state = ws
-            .wait_for("skip", |s| s["learn"]["step"].as_u64() != Some(step))
-            .await;
+#[tokio::test(flavor = "multi_thread")]
+async fn wizard_finds_a_switch_with_a_channel_per_position() {
+    let mut ov = Overlay::start();
+    // A button per switch position, for games: SA on CH9/CH10, SB on CH11-13 (up, middle,
+    // down), SC on CH14/CH15 (up, down; the middle is neither).
+    let s = |ch| Source { ch, invert: false };
+    ov.wiring = Wiring {
+        mixes: vec![
+            (Target::RightX, s(1)),
+            (Target::RightY, s(2)),
+            (Target::LeftY, s(3)),
+            (Target::LeftX, s(4)),
+            (Target::S1, s(5)),
+            (Target::SD, s(16)),
+            (Target::SE, s(17)),
+        ],
+        positions: vec![
+            (Target::SA, 0, 9),
+            (Target::SA, 1, 10),
+            (Target::SB, 0, 11),
+            (Target::SB, 1, 12),
+            (Target::SB, 2, 13),
+            (Target::SC, 0, 14),
+            (Target::SC, 2, 15),
+        ],
+    };
+    let mut ws = Ws::connect(ov.port).await;
+    run_wizard(&mut ov, &mut ws).await;
+    let saved = ov.config_text();
+    assert!(
+        saved.contains("[controls.SB]\nup = 11\nmid = 12\ndown = 13\n"),
+        "{saved}"
+    );
+    assert!(
+        saved.contains("[controls.SC]\nup = 14\ndown = 15\n"),
+        "{saved}"
+    );
+
+    // every position of every switch reads right from then on
+    ws.command("learn_close").await;
+    let mut rng = Rng(7);
+    for _ in 0..40 {
+        let radio = rng.radio();
+        let state = show(&mut ov, &mut ws, &radio).await;
+        assert_reads(&state, &radio);
     }
-    act(&mut ov, &mut radio, Target::SB).await;
-    let state = ws
-        .wait_for("SB detected", |s| target_of(s) == Some(Target::SC))
-        .await;
-    assert_eq!(found_for(&state, Target::SB)["ch"], json!(6), "{state:#}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
