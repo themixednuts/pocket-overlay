@@ -26,3 +26,7 @@ tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }
 tokio-tungstenite = "0.30.0"
 toml = "1.1.6"
+
+# the virtual-radio test (tests/uhid.rs) talks to /dev/uhid and evdev directly
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"

@@ -842,6 +842,7 @@ dependencies = [
  "futures-util",
  "headless_chrome",
  "hidapi",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

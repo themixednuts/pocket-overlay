@@ -48,6 +48,28 @@ jobs:
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
 
+      # For tests/uhid.rs: a virtual Pocket (uhid) that the overlay and a "game" read at the
+      # same time. Installs the udev rule we ship, with open access instead of the logged-in
+      # user's (CI has no login session), plus access to /dev/uhid and the gamepad's evdev node.
+      - name: Virtual radio support
+        if: runner.os == 'Linux'
+        run: |
+          grep -E 'CONFIG_(UHID|HID_GENERIC|HIDRAW|INPUT_EVDEV)=' "/boot/config-$(uname -r)" || true
+          # the runners' Azure kernel keeps uhid in its "extra" modules package
+          if ! sudo modprobe uhid; then
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe uhid
+          fi
+          sudo chmod 666 /dev/uhid
+          sed 's/MODE="0660", TAG+="uaccess"/MODE="0666"/' packaging/99-radiomaster-pocket.rules \
+            | sudo tee /etc/udev/rules.d/99-radiomaster-pocket.rules
+          grep -q 'MODE="0666"' /etc/udev/rules.d/99-radiomaster-pocket.rules
+          echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="4f54", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-test-gamepad.rules
+          sudo udevadm control --reload-rules
+
       # Includes the headless-Chrome render tests; the runners come with Chrome.
       - name: Test
         run: cargo test
+        env:
+          POCKET_UHID: ${{ runner.os == 'Linux' && '1' || '0' }}

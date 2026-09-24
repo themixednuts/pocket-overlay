@@ -21,7 +21,7 @@ The app reads the radio and never writes to it: the `HidBackend`/`HidPort` trait
 Other programs using the radio as a joystick keep working on every OS:
 
 - **Windows:** hidapi opens with `FILE_SHARE_READ | FILE_SHARE_WRITE`, and each open handle gets its own copy of every report.
-- **Linux:** several processes can open the same hidraw node. Games usually read the separate evdev node anyway.
+- **Linux:** several processes can open the same hidraw node, each with its own queue of reports. Games usually read the separate evdev node, and a game that grabs it (`EVIOCGRAB`) only shuts out other evdev readers, not hidraw. The `uhid` test checks all of this against the real kernel.
 - **macOS:** hidapi *seizes* devices by default (`hid_init` sets `kIOHIDOptionsTypeSeizeDevice`). The `macos-shared-device` feature turns that off, `Hidapi::new` makes sure of it, and a macOS-only test checks it in CI.
 
 If another program does hold the radio exclusively, the app says so once and keeps retrying.
@@ -93,10 +93,15 @@ The tests treat the app as a black box. They act like a radio on one end and lik
   - reports never going backwards at 1000/s;
   - throughput (over 180,000 reports/s in a debug build).
 - **`blackbox_render`**: loads the real page in headless Chrome/Edge and measures the drawing in screen pixels: knob position (including 1% deflections), the gimbals tilting like the real ones (the slot rolls the same way as the knob but less, and foreshortens), paddle lean, what's lit, bars, text, the setup page, the accent colour reaching OBS, hiding the strip under the radio at the real OBS size (680 × 830) without the radio moving, and that nothing ends up off screen at ten window sizes from a phone to 1920 × 1080 (on the setup page, with the settings scrolled to the bottom and the wizard on every step). Channel detection refuses to start without a radio or on `--demo`.
+- **`uhid`** (Linux): plugs in a virtual Pocket through the kernel's uhid (same USB IDs, name and descriptor), so the real USB path runs against the real kernel HID stack.
+  - Two overlays read it through hidraw while three "games" read it as a gamepad through evdev: one opened before the overlays, one opened later that grabs the gamepad for itself, one after unplugging and plugging back in.
+  - Every overlay reads every report sent (compared byte for byte with its `--record` file), shows the last one, notices the unplug and comes back on its own.
+  - Every game sees every report too. The kernel can split one report into several gamepad updates (it budgets about 16 events per update, a report can make about 56), so games may briefly see a mix of two reports; the overlay always gets whole reports.
+  - Needs `/dev/uhid`: CI loads the module and installs the udev rule we ship. Elsewhere it prints `SKIPPED` and passes; `POCKET_UHID=1` makes that a failure.
 - **`skins`**: uploads, lists, chooses and removes skins over HTTP and the WebSocket; rejects path-traversal names, non-PNGs and oversized files; refuses requests and WebSocket connections from other websites. `blackbox_render` checks a skin wraps the body inside the outline with every detail on top, and that `?skin=none` and a misspelt skin fall back to the drawing.
 - **`tools/mutants.py`**: plants one realistic bug at a time (inverted axes, a gimbal that slides instead of tilting, swapped switch ends, off-by-one scaling, and so on) and checks that a test catches each.
 
-Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mirror. Without Chrome or Edge, the render tests print `SKIPPED` and pass. CI (`.github/workflows/ci.yml`) fetches a pinned EdgeTX commit and runs everything on Windows, macOS and Linux.
+Without the EdgeTX checkout or a C++ compiler, the tests use the Rust encoder mirror. Without Chrome or Edge, the render tests print `SKIPPED` and pass; at most four of them run at a time, since each starts its own browsers. CI (`.github/workflows/ci.yml`) fetches a pinned EdgeTX commit and runs everything on Windows, macOS and Linux.
 
 ## Releasing
 

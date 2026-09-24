@@ -8,7 +8,7 @@
 mod common;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{Overlay, Radio, Rng, channel_key, expected_channels};
@@ -43,6 +43,34 @@ fn browser_path() -> Option<PathBuf> {
 struct Page {
     _browser: Browser,
     tab: Arc<Tab>,
+}
+
+/// Each render test starts one to four browsers. All of them at once starve a small CI runner
+/// (pages then take longer than any timeout to draw), so only a few tests run at a time.
+struct BrowserSlot;
+
+static SLOTS: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+fn browser_slot() -> BrowserSlot {
+    let max = std::thread::available_parallelism()
+        .map_or(2, |n| n.get())
+        .clamp(2, 4);
+    let (used, freed) = &SLOTS;
+    let mut used = freed
+        .wait_while(used.lock().unwrap_or_else(|e| e.into_inner()), |n| {
+            *n >= max
+        })
+        .unwrap_or_else(|e| e.into_inner());
+    *used += 1;
+    BrowserSlot
+}
+
+impl Drop for BrowserSlot {
+    fn drop(&mut self) {
+        let (used, freed) = &SLOTS;
+        *used.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        freed.notify_one();
+    }
 }
 
 /// Measures everything the tests look at, in CSS pixels, as one JSON string.
@@ -153,7 +181,7 @@ impl Page {
     /// Waits until the page has drawn a frame showing exactly these channels.
     fn wait_for_channels(&self, ch: &[i16]) {
         let key = channel_key(ch);
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             let shown = self.eval("document.getElementById('root').dataset.channels || ''");
             if shown.as_str().is_some_and(|s| s.starts_with(&key)) {
@@ -168,7 +196,7 @@ impl Page {
     }
 
     fn wait_until(&self, what: &str, js: &str) {
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while self.eval(js) != Value::Bool(true) {
             assert!(Instant::now() < deadline, "timed out waiting for {what}");
             std::thread::sleep(Duration::from_millis(20));
@@ -232,6 +260,7 @@ fn pct(v: f32) -> String {
 
 #[test]
 fn sticks_render_where_they_are_pushed() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?trail=0&accent=%23ff00ff") else {
         return;
@@ -357,6 +386,7 @@ fn sticks_render_where_they_are_pushed() {
 
 #[test]
 fn switches_render_their_positions() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     // with the optional side views on, so the paddles' lean can be measured too
     let Some(page) = Page::open(&ov, "?sides=1&trail=0&accent=%23ff00ff") else {
@@ -436,6 +466,7 @@ fn switches_render_their_positions() {
 
 #[test]
 fn pot_channel_bars_and_buttons() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?trail=0&accent=%23ff00ff") else {
         return;
@@ -535,6 +566,7 @@ fn pot_channel_bars_and_buttons() {
 
 #[test]
 fn small_deflections_are_drawn_not_deadzoned() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?trail=0") else {
         return;
@@ -563,6 +595,7 @@ fn small_deflections_are_drawn_not_deadzoned() {
 
 #[test]
 fn readout_follows_stick_mode() {
+    let _slot = browser_slot();
     let cfg = pocket_overlay::config::Config {
         mode: 1,
         ..Default::default()
@@ -586,6 +619,7 @@ fn readout_follows_stick_mode() {
 
 #[test]
 fn disconnect_dims_the_radio() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?trail=0&accent=%23ff00ff") else {
         return;
@@ -634,6 +668,7 @@ fn disconnect_dims_the_radio() {
 
 #[test]
 fn setup_page_runs_the_wizard() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?setup=1&trail=0") else {
         return;
@@ -730,6 +765,7 @@ fn setup_page_runs_the_wizard() {
 #[test]
 #[ignore]
 fn gallery() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     ov.line("name Radiomaster Pocket Joystick");
     let Some(page) = Page::open(&ov, "?trail=0") else {
@@ -816,6 +852,7 @@ fn gallery() {
 #[test]
 #[ignore]
 fn evidence() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(page) = Page::open(&ov, "?trail=0") else {
         return;
@@ -980,6 +1017,7 @@ fn probe(page: &Page) -> Value {
 
 #[test]
 fn a_skin_wraps_the_body_and_everything_else_stays_on_top() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let (status, _, _) = common::http(
         ov.port,
@@ -1034,6 +1072,7 @@ fn a_skin_wraps_the_body_and_everything_else_stays_on_top() {
 
 #[test]
 fn the_saved_skin_shows_without_changing_the_obs_url() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     common::http(
         ov.port,
@@ -1096,6 +1135,7 @@ const POWER_STROKE: &str = "getComputedStyle(document.getElementById('power')).s
 
 #[test]
 fn accent_picked_on_the_setup_page_reaches_obs() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(setup) = Page::open(&ov, "?setup=1") else {
         return;
@@ -1158,6 +1198,7 @@ const LAYOUT: &str = r#"(() => {
 
 #[test]
 fn the_strip_under_the_radio_can_be_turned_off() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     let Some(setup) = Page::open(&ov, "?setup=1") else {
         return;
@@ -1352,6 +1393,7 @@ fn assert_on_screen(page: &Page, what: &str) {
 
 #[test]
 fn everything_stays_on_screen_at_any_size() {
+    let _slot = browser_slot();
     let mut ov = Overlay::start();
     // the OBS page: front view, side views, and just the controller
     for query in [
@@ -1387,6 +1429,7 @@ fn everything_stays_on_screen_at_any_size() {
 
 #[test]
 fn channel_detection_says_why_it_cant_start() {
+    let _slot = browser_slot();
     let can_start = |page: &Page, can: bool, says: &str| {
         page.wait_until(
             says,
