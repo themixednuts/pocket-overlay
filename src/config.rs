@@ -136,6 +136,15 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The OBS Browser Source size for these settings: 680 wide, and tall enough for what
+    /// shows under the radio, rounded up to 10. The setup page works it out the same way
+    /// (`obsHeight`): the drawing is 682 wide and 653 tall, plus 44 for the readout and 132
+    /// for the channel bars.
+    pub fn obs_source_size(&self) -> (u32, u32) {
+        let tall = 653 + 44 * u32::from(self.show_readout) + 132 * u32::from(self.show_channels);
+        (680, (tall * 680).div_ceil(682 * 10) * 10)
+    }
+
     /// `%APPDATA%\pocket-overlay\overlay.toml` on Windows, `~/.config/pocket-overlay/overlay.toml`
     /// elsewhere, so the settings don't depend on which folder the app was started from.
     pub fn default_path() -> PathBuf {
@@ -299,6 +308,23 @@ mod tests {
         ] {
             assert!(!valid_colour(bad), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn obs_sizes_match_the_setup_page() {
+        let size = |readout, channels| {
+            Config {
+                show_readout: readout,
+                show_channels: channels,
+                ..Config::default()
+            }
+            .obs_source_size()
+        };
+        // what the setup page shows (checked in blackbox_render)
+        assert_eq!(size(true, true), (680, 830));
+        assert_eq!(size(false, true), (680, 790));
+        assert_eq!(size(true, false), (680, 700));
+        assert_eq!(size(false, false), (680, 660));
     }
 
     #[test]

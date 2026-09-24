@@ -43,13 +43,18 @@ Settings live in `%APPDATA%\pocket-overlay\overlay.toml` (Windows) or `~/.config
 ## Command-line options
 
 ```
-pocket-overlay                      # real radio
+pocket-overlay                      # real radio; opens the settings page in the default browser
+pocket-overlay --no-browser         # ...without opening it
 pocket-overlay --demo               # moving fake input
 pocket-overlay --monitor            # raw CH1-32 in the terminal (~ analog, 2/3 = switch type)
 pocket-overlay --record flight.txt  # real radio, and save every report
 pocket-overlay --replay flight.txt  # play a recording back (`-` = stdin)
 pocket-overlay --config <file> --port <n>
 ```
+
+If the port is taken by a running pocket-overlay (it answers `/state`), a second copy opens that one's settings page and exits; if something else has the port, it says so and exits with an error.
+
+The OBS source is `http://127.0.0.1:7878/`, 680 wide and 830 tall (less with the readout or channel bars hidden; the setup page and the console show the size for the saved choice).
 
 A recording is plain text, one item per line: `name <text>`, `descriptor <hex>`, `wait <ms>`, `disconnect`, or a report as hex.
 

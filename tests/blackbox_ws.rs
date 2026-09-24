@@ -495,19 +495,15 @@ async fn rapid_unplug_replug_never_shows_stale_positions() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_second_copy_on_the_same_port_says_why_and_leaves_the_first_alone() {
+async fn a_second_copy_hands_over_to_the_first() {
     let mut ov = Overlay::start();
     let mut ws = Ws::connect(ov.port).await;
-    let dir = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
-        .args(["--replay", "-", "--port", &ov.port.to_string(), "--config"])
-        .arg(dir.path().join("overlay.toml"))
-        .stdin(std::process::Stdio::null())
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
+    // running it again is how people get the settings page back: it opens the running
+    // copy's page (not here: --no-browser) and quits
+    let out = second_copy(ov.port);
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("already in use"), "{err}");
+    assert!(out.status.success(), "{err}");
+    assert!(err.contains("already running"), "{err}");
     // the first copy is unaffected
     let radio = Radio {
         right_x: 0.75,
@@ -515,6 +511,28 @@ async fn a_second_copy_on_the_same_port_says_why_and_leaves_the_first_alone() {
     };
     let state = show(&mut ov, &mut ws, &radio).await;
     assert_reads(&state, &radio);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_port_taken_by_another_program_says_so() {
+    // something else listening (and never answering)
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let out = second_copy(other.local_addr().unwrap().port());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{err}");
+    assert!(err.contains("in use by another program"), "{err}");
+}
+
+/// Runs the app on `port` until it exits.
+fn second_copy(port: u16) -> std::process::Output {
+    let dir = tempfile::tempdir().unwrap();
+    std::process::Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
+        .args(["--replay", "-", "--no-browser", "--port", &port.to_string()])
+        .arg("--config")
+        .arg(dir.path().join("overlay.toml"))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]

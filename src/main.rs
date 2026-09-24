@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use tokio::sync::{mpsc, watch};
@@ -14,9 +15,11 @@ pocket-overlay - OBS overlay for the RadioMaster Pocket (EdgeTX USB joystick)
 
 USAGE: pocket-overlay [options]
 
-Run it with no options, then add http://127.0.0.1:7878/ to OBS as a Browser Source.
+Run it with no options: its settings page opens in your browser, with the address to add
+to OBS as a Browser Source. Running it again while it runs opens that page again.
 
   --demo            fake radio input, to set up the OBS scene without the radio
+  --no-browser      don't open the settings page at start
   --monitor         print raw channel values in the terminal instead of serving
   --record <file>   save every report from the radio to a file
   --replay <file>   play a recording back (`-` reads report lines from stdin)
@@ -35,6 +38,7 @@ struct Args {
     monitor: bool,
     config: PathBuf,
     port: Option<u16>,
+    browser: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -43,6 +47,7 @@ fn parse_args() -> Result<Args> {
         monitor: false,
         config: Config::default_path(),
         port: None,
+        browser: true,
     };
     let mut record = None;
     let mut it = std::env::args().skip(1);
@@ -55,6 +60,7 @@ fn parse_args() -> Result<Args> {
             "--replay" => args.input = Input::Replay(value("--replay", &mut it)?.into()),
             "--record" => record = Some(PathBuf::from(value("--record", &mut it)?)),
             "--monitor" => args.monitor = true,
+            "--no-browser" => args.browser = false,
             "--config" => args.config = value("--config", &mut it)?.into(),
             "--port" => args.port = Some(value("--port", &mut it)?.parse().context("--port")?),
             "-h" | "--help" => {
@@ -119,17 +125,27 @@ async fn run() -> Result<()> {
     let port = args.port.unwrap_or(cfg.port);
     let (listener, addr) = match server::bind(port).await {
         Ok(bound) => bound,
+        // Running it again is how people get the settings page back.
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && already_running(port) => {
+            eprintln!("Pocket overlay is already running; opening its settings.");
+            if args.browser {
+                let _ = open_settings(port).join();
+            }
+            return Ok(());
+        }
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => bail!(
-            "port {port} is already in use. Is pocket-overlay already running? \
-             Close it, or start this one with --port <another number>."
+            "port {port} is already in use by another program. \
+             Start this one with --port <another number>, and use that number in the OBS URL."
         ),
         Err(e) => return Err(e).context("starting the web server"),
     };
+    let (width, height) = cfg.obs_source_size();
     // The black-box tests read the port from the first URL printed here.
-    eprintln!("Pocket overlay is running.");
-    eprintln!("  OBS Browser Source:  http://{addr}/   (680 x 830, transparent)");
-    eprintln!("  Setup:               http://{addr}/?setup=1");
-    eprintln!("  Settings file:       {}", args.config.display());
+    eprintln!(
+        "Pocket overlay is running. Keep this window open while you stream; close it to stop."
+    );
+    eprintln!("  Settings:            http://{addr}/?setup=1");
+    eprintln!("  OBS Browser Source:  http://{addr}/   ({width} x {height})");
 
     let engine = Engine::new(cfg.clone(), args.config.clone());
     let (state_tx, state_rx) = watch::channel(engine.state());
@@ -138,8 +154,43 @@ async fn run() -> Result<()> {
     start_input(args.input, &cfg, raw_tx);
 
     let skins = pocket_overlay::skins::Skins::beside(&args.config);
+    if args.browser {
+        open_settings(addr.port());
+    }
     server::serve(listener, state_rx, cmd_tx, skins).await?;
     Ok(())
+}
+
+/// Whether pocket-overlay is what's listening on `port`: it answers /state with its state.
+fn already_running(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut conn) = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(1)) else {
+        return false;
+    };
+    let _ = conn.set_read_timeout(Some(Duration::from_secs(1)));
+    let _ = conn.set_write_timeout(Some(Duration::from_secs(1)));
+    let request =
+        format!("GET /state HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    if conn.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut reply = Vec::new();
+    let _ = conn.take(64 * 1024).read_to_end(&mut reply); // keeps what arrived before a timeout
+    let reply = String::from_utf8_lossy(&reply);
+    reply.starts_with("HTTP/1.1 200") && reply.contains("\"show_channels\"")
+}
+
+/// Opens the settings page in the user's default browser. Best effort: its address is
+/// printed too.
+fn open_settings(port: u16) -> std::thread::JoinHandle<()> {
+    let url = format!("http://127.0.0.1:{port}/?setup=1");
+    // off the async runtime: some platforms wait for the browser to take the URL
+    std::thread::spawn(move || {
+        if let Err(e) = webbrowser::open(&url) {
+            eprintln!("Couldn't open your browser ({e}); open {url} yourself.");
+        }
+    })
 }
 
 fn start_input(source: Input, cfg: &Config, tx: watch::Sender<RawState>) {

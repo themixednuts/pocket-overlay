@@ -440,7 +440,7 @@ impl Overlay {
         }
         let mut child = Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
             .args(input)
-            .args(["--port", "0", "--config"])
+            .args(["--no-browser", "--port", "0", "--config"])
             .arg(&cfg)
             .current_dir(dir.path()) // no web/ override: test the embedded page
             .stdin(Stdio::piped())
