@@ -192,8 +192,11 @@ fn sticks_render_where_they_are_pushed() {
     };
     eprintln!("encoder: {}", ov.encoder_name());
 
-    show(&mut ov, &page, &Radio::default());
+    let rest = show(&mut ov, &page, &Radio::default());
     page.screenshot("neutral");
+    // slot height with the drum facing the camera
+    let rest_h = |side: &str| num(&rest[format!("slot-{side}").as_str()]["h"]);
+    let mut ratios: Vec<f64> = Vec::new();
 
     let mut cases = Vec::new();
     for (x, y) in [
@@ -242,28 +245,36 @@ fn sticks_render_where_they_are_pushed() {
                 "y tick",
                 &m,
             );
-            // Like the real gimbal: the slot moves up and down with the stick (never sideways)
-            // and the knob rides along inside it.
+            // Like the real gimbal, which tilts: the drum's slot rolls the same way as the knob
+            // but less (the stick leans through it), never sideways, and gets thinner as the
+            // drum turns away from the camera.
             let slot = &m[format!("slot-{side}").as_str()];
-            approx(
-                num(&slot["cy"]),
-                num(&knob["cy"]),
-                0.6,
-                "slot follows Y",
-                &m,
-            );
             approx(
                 num(&slot["cx"]),
                 num(&travel["cx"]),
                 0.6,
-                "slot stays centred in X",
+                "slot never moves sideways",
                 &m,
             );
-            let room = (num(&slot["w"]) - num(&knob["w"])) / 2.0;
-            assert!(
-                (num(&knob["cx"]) - num(&slot["cx"])).abs() <= room + 0.6,
-                "{side} knob outside its slot\n{m}"
-            );
+            let knob_dy = num(&knob["cy"]) - num(&travel["cy"]);
+            let slot_dy = num(&slot["cy"]) - num(&travel["cy"]);
+            if sy.abs() > 0.2 {
+                let ratio = slot_dy / knob_dy;
+                assert!(
+                    ratio > 0.2 && ratio < 0.9,
+                    "{side} slot moved {slot_dy:.1}px for a {knob_dy:.1}px knob move\n{m}"
+                );
+                ratios.push(ratio);
+            }
+            let h = num(&slot["h"]);
+            assert!(h <= rest_h(side) + 0.3, "{side} slot taller than at rest");
+            if sy.abs() >= 0.5 {
+                assert!(
+                    h < rest_h(side) - 0.5,
+                    "{side} slot not foreshortened at y {sy}: {h:.2} vs {:.2}\n{m}",
+                    rest_h(side)
+                );
+            }
         }
         let thr = js_round((f64::from(r.left_y) + 1.0) * 50.0);
         let want = format!(
@@ -290,6 +301,12 @@ fn sticks_render_where_they_are_pushed() {
         },
     );
     page.screenshot("deflected");
+    // the slot's share of the knob's movement is the same everywhere: one rigid tilt
+    let first = ratios[0];
+    assert!(
+        ratios.iter().all(|r| (r - first).abs() < 0.03),
+        "slot/knob ratios vary: {ratios:?}"
+    );
 }
 
 #[test]

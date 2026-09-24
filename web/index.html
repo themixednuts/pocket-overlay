@@ -32,6 +32,7 @@
   .tag { fill: var(--ink); font-size: 15px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 4px; }
   .tag .st { fill: var(--accent); }
   .knob { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
+  .shaft { stroke: #b9bec5; stroke-width: 7; stroke-linecap: round; }
   .stub { fill: #1a1b1e; stroke: #4a4c52; stroke-width: 1.5; }
   .cap { fill: url(#knurl); stroke: #8b9097; stroke-width: 1.5; }
   .caprib { stroke: rgba(0,0,0,.35); stroke-width: 1.5; }
@@ -262,31 +263,37 @@ for (const [id, cx] of [["trimL", 423], ["trimR", 577]]) {
 }
 
 // ---------------- gimbals (front) ----------------
-// Drawn like the Pocket's own gimbals (measured on the product photo): a black opening in
-// the round bezel with a grey carriage across it. The carriage, with its slot, slides up
-// and down with the stick's Y; the knob rides left and right along the slot with X.
-// Both are linear in the channel value.
-const TRAVEL_X = 27, TRAVEL_Y = 26;
-const OPEN_W = 114, OPEN_H = 92;
+// Drawn like the Pocket's gimbals (measured on the product photo), looking down on the stick:
+// a black opening in the bezel with a drum inside it on a fixed left-right axle. Up/down
+// swivels the drum, so its slot rolls up/down and foreshortens as it turns away; the stick
+// leans through the slot, so its knob travels further than the slot does. Left/right
+// swivels the stick along the slot. The knob's position is linear in the channel value.
+const TRAVEL_X = 40, TRAVEL_Y = 40;          // knob (stick top) travel
+const OPEN_W = 114, OPEN_H = 92, DRUM_R = 46;
+const SWING = 0.5;                           // sine of the stick's full-throw angle (30 deg)
+const LEAN = DRUM_R * SWING / TRAVEL_Y;      // slot movement relative to the knob's
 function buildGimbal(g, cx, cy, side) {
   el("circle", { cx, cy, r: 82, fill: "#0c0c0e", stroke: "#4a4c52", "stroke-width": 2 }, g);
   el("circle", { cx, cy, r: 76, fill: "none", stroke: "#1f2024", "stroke-width": 5 }, g);
   const ox = cx - OPEN_W / 2, oy = cy - OPEN_H / 2;
-  el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11, fill: "#040405" }, g);
-  const clip = el("clipPath", { id: `opening-${side}` }, el("defs", {}, g));
+  const defs = el("defs", {}, g);
+  const clip = el("clipPath", { id: `opening-${side}` }, defs);
   el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11 }, clip);
+  // the drum, lit from the front-bottom like in the photo; the light doesn't turn with it
+  const shade = el("linearGradient", { id: `drum-${side}`, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el("stop", { offset: 0, "stop-color": "#060607" }, shade);
+  el("stop", { offset: 0.45, "stop-color": "#16171a" }, shade);
+  el("stop", { offset: 1, "stop-color": "#3a3b40" }, shade);
 
-  // carriage: skirt below, slot frame, the slot itself (clipped to the opening)...
   const inside = el("g", { "clip-path": `url(#opening-${side})` }, g);
-  const carriage = el("g", { "data-test": `carriage-${side}` }, inside);
-  el("rect", { x: cx - 50, y: cy + 14, width: 100, height: 80, fill: "#27282c" }, carriage);
-  el("rect", { x: cx - 50, y: cy - 20, width: 100, height: 40, rx: 6, fill: "#3a3b40", stroke: "#4c4e54", "stroke-width": 1.5 }, carriage);
-  el("rect", { "data-test": `slot-${side}`, x: cx - TRAVEL_X - 16, y: cy - 15, width: 2 * TRAVEL_X + 32, height: 30, rx: 8,
-               fill: "#050506", stroke: "#1c1d20", "stroke-width": 1.5 }, carriage);
-  // ...and the guide tabs it slides on, just outside the opening
-  const tabs = el("g", {}, g);
-  el("rect", { x: ox - 8, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, tabs);
-  el("rect", { x: ox + OPEN_W - 2, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, tabs);
+  el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, fill: `url(#drum-${side})` }, inside);
+  const ribs = el("path", { stroke: "rgba(255,255,255,.07)", "stroke-width": 1.5, fill: "none" }, inside);
+  const frame = el("rect", { x: cx - 50, width: 100, rx: 6, fill: "#3a3b40", stroke: "#4c4e54", "stroke-width": 1.5 }, inside);
+  const slot = el("rect", { "data-test": `slot-${side}`, x: cx - 43, width: 86, rx: 8, fill: "#050506", stroke: "#1c1d20", "stroke-width": 1.5 }, inside);
+  const trail = el("polyline", { class: "trail" }, inside);
+  // axle ends: fixed, they don't move with the drum
+  el("rect", { x: ox - 8, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, g);
+  el("rect", { x: ox + OPEN_W - 2, y: cy - 5, width: 10, height: 10, rx: 2, fill: "#3a3b40" }, g);
   el("rect", { x: ox, y: oy, width: OPEN_W, height: OPEN_H, rx: 11, fill: "none", stroke: "#2c2e33", "stroke-width": 2 }, g);
 
   // test hook: the range the knob's centre covers (-1..1 on each axis)
@@ -297,18 +304,43 @@ function buildGimbal(g, cx, cy, side) {
   const guideX = el("line", { class: "guide" }, g), guideY = el("line", { class: "guide" }, g);
   const tickX = el("path", { class: "tick", "data-test": `tickx-${side}` }, g);
   const tickY = el("path", { class: "tick", "data-test": `ticky-${side}` }, g);
-  const trail = el("polyline", { class: "trail" }, inside);
+  const shaft = el("line", { class: "shaft", "data-test": `shaft-${side}` }, g);
   const knob = el("circle", { class: "knob", "data-test": `knob-${side}`, cx, cy, r: 14 }, g);
-  return { cx, cy, side, edgeX, bottom: oy + OPEN_H + 9, moving: [carriage, tabs], guideX, guideY, tickX, tickY, trail, knob, pts: [] };
+  return { cx, cy, side, edgeX, bottom: oy + OPEN_H + 14, ribs, frame, slot, shaft, guideX, guideY, tickX, tickY, trail, knob, pts: [] };
 }
 const gL = buildGimbal($("gimbalL"), 331, 523, "L");
 const gR = buildGimbal($("gimbalR"), 672, 521, "R");
 
+// Projected top and bottom of a band on the drum, `half` px high when facing the camera.
+function drumBand(cy, phi, half) {
+  const d = Math.asin(half / DRUM_R);
+  return [cy - DRUM_R * Math.sin(phi + d), cy - DRUM_R * Math.sin(phi - d)];
+}
+
 function drawGimbal(g, s) {
   const sx = clamp(s.x), sy = clamp(s.y);
-  const dy = -sy * TRAVEL_Y; // up on the stick = up on screen
-  const x = g.cx + sx * TRAVEL_X, y = g.cy + dy;
-  for (const part of g.moving) part.setAttribute("transform", `translate(0 ${dy.toFixed(2)})`);
+  const x = g.cx + sx * TRAVEL_X, y = g.cy - sy * TRAVEL_Y; // up on the stick = up on screen
+  const phi = Math.asin(sy * SWING);                       // how far the drum has turned
+
+  const [ft, fb] = drumBand(g.cy, phi, 20);
+  g.frame.setAttribute("y", ft.toFixed(2)); g.frame.setAttribute("height", (fb - ft).toFixed(2));
+  const [st, sb] = drumBand(g.cy, phi, 15);
+  g.slot.setAttribute("y", st.toFixed(2)); g.slot.setAttribute("height", (sb - st).toFixed(2));
+  // faint lines around the drum, bunching up towards its edges as it turns
+  let d = "";
+  for (let i = -8; i <= 8; i++) {
+    const a = phi + i * 0.22;
+    if (Math.abs(a) < 1.45) {
+      const ry = (g.cy - DRUM_R * Math.sin(a)).toFixed(2);
+      d += `M${g.cx - 57} ${ry} H${g.cx + 57}`;
+    }
+  }
+  g.ribs.setAttribute("d", d);
+
+  // the stick leans through the slot: it leaves the drum closer in than its knob
+  const ex = g.cx + sx * TRAVEL_X * LEAN, ey = g.cy - sy * TRAVEL_Y * LEAN;
+  g.shaft.setAttribute("x1", ex.toFixed(2)); g.shaft.setAttribute("y1", ey.toFixed(2));
+  g.shaft.setAttribute("x2", x.toFixed(2)); g.shaft.setAttribute("y2", y.toFixed(2));
   g.knob.setAttribute("cx", x); g.knob.setAttribute("cy", y);
 
   g.tickX.setAttribute("d", `M${x} ${g.bottom - 5} l5 8 h-10 Z`);
