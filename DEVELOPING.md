@@ -1,5 +1,9 @@
 # Developing pocket-overlay
 
+## Building
+
+Install [Rust](https://rustup.rs) and run `cargo build --release`. On Linux you also need `libudev-dev` and `pkg-config`. The app ends up in `target/release/`.
+
 ## How it works
 
 A Rust server reads the radio's USB HID reports, decodes them, and pushes the result over a WebSocket to an SVG page (`web/index.html`) that OBS shows as a Browser Source.

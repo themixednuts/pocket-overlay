@@ -1,53 +1,50 @@
 # Pocket Overlay
 
-Shows a RadioMaster Pocket's sticks and switches live in OBS, read straight from the radio over USB.
+Show your RadioMaster Pocket's sticks and switches live on stream.
 
 ![The overlay: both sticks, all switches, and the channel values](docs/screenshot.png)
 
-## Download
+## Setup
 
-Get the file for your computer from the [latest release](../../releases/latest) and unzip it:
+1. **Download** the file for your computer from the [latest release](../../releases/latest) and unzip it.
+   Windows: `…windows-x86_64.zip` · Mac: `…macos-universal.tar.gz` · Linux: `…linux-x86_64.tar.gz`
+2. **Plug in** the Pocket with a USB cable. On the radio, choose **USB Joystick (HID)**.
+3. **Run** `pocket-overlay`. On Windows, double-click it. If Windows warns you, click **More info**, then **Run anyway**.
+4. **In OBS**, add a **Browser** source with the URL `http://127.0.0.1:7878/`, width **680** and height **830**.
 
-| Computer | File |
-|---|---|
-| Windows | `pocket-overlay-…-windows-x86_64.zip` |
-| Mac (Apple Silicon or Intel) | `pocket-overlay-…-macos-universal.tar.gz` |
-| Linux | `pocket-overlay-…-linux-x86_64.tar.gz` |
+That's it. Keep `pocket-overlay` open while you stream. You can still use the radio in a sim or game at the same time.
 
-## Use it
+## Something looks wrong?
 
-1. Plug the Pocket into the computer with a USB cable. On the radio, choose **USB Joystick (HID)**.
-2. Start **pocket-overlay** (on Windows, double-click it). Its window shows the address to use: `http://127.0.0.1:7878/`.
-3. In OBS, add a **Browser** source with that address and a size of **680 × 830**.
+- **A stick or switch moves the wrong thing:** open <http://127.0.0.1:7878/?setup=1> in your browser, click **Detect channels**, and follow the prompts.
+- **Nothing moves:** check the radio is in **USB Joystick (HID)** mode and the `pocket-overlay` window says **Radio connected**.
 
-Leave pocket-overlay running while you stream. It finds the radio by itself, including after you unplug it and plug it back in.
+<details>
+<summary><b>Mac</b></summary>
 
-## If a stick or switch shows the wrong thing
+The app isn't signed by Apple. The first time, right-click `pocket-overlay`, choose **Open**, then **Open** again.
+</details>
 
-The overlay shows what your model sends, so it depends on the model's mixes. Open `http://127.0.0.1:7878/?setup=1` in a web browser and press **Detect channels**. It asks you to move each stick and switch in turn and remembers what it finds. The same page sets your stick mode (which side the throttle is on).
+<details>
+<summary><b>Linux</b></summary>
 
-## Good to know
-
-- **It only listens.** You can fly a sim or play a game with the radio as a joystick while the overlay runs. Both see every movement, and the overlay never sends anything to the radio.
-- It shows exactly what the radio sends, with no deadzone or smoothing, up to the radio's full rate of 1000 updates a second.
-- Only the sticks, switches and the S1 wheel reach the computer. The menu buttons and trim buttons don't, although trims show up as a small shift in the stick position.
-- No radio yet? Run `pocket-overlay --demo` and everything moves by itself, so you can arrange the OBS scene.
-- Port 7878 already taken? Run `pocket-overlay --port 7879` and use that number in OBS.
-- To change the colour, add `?accent=%23ff8800` (any colour code, with `%23` in place of `#`) to the address in OBS. To hide the channel bars, add `?channels=0`.
-
-**First run on Windows:** if you see "Windows protected your PC", click **More info**, then **Run anyway**. The app isn't signed.
-
-**First run on a Mac:** the app isn't signed by Apple. Right-click `pocket-overlay`, choose **Open**, then **Open** again.
-
-**Linux:** give your user access to the radio once, then unplug it and plug it back in:
+Give your user access to the radio once, then unplug it and plug it back in:
 
 ```
 sudo cp 99-radiomaster-pocket.rules /etc/udev/rules.d/
 sudo udevadm control --reload
 ```
 
-## Building it yourself
+Then run `./pocket-overlay` from the unzipped folder.
+</details>
 
-With [Rust](https://rustup.rs) installed, run `cargo build --release`. On Linux you also need `libudev-dev` and `pkg-config`. The app ends up in `target/release/`.
+<details>
+<summary><b>Extras</b></summary>
 
-[DEVELOPING.md](DEVELOPING.md) covers how it works, the tests, and making a release.
+- `pocket-overlay --demo`: everything moves by itself, so you can arrange the OBS scene without the radio.
+- `pocket-overlay --port 7879`: use another port if 7878 is taken, and put the same number in the OBS URL.
+- Add `?accent=%23ff8800` to the OBS URL for another colour, or `?channels=0` to hide the channel bars.
+- Only the sticks, switches and S1 reach the computer. The menu and trim buttons don't, although trims show as a small shift in the stick position.
+</details>
+
+Building it yourself, or curious how it works? See [DEVELOPING.md](DEVELOPING.md).
