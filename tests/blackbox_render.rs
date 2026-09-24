@@ -1455,3 +1455,101 @@ fn channel_detection_says_why_it_cant_start() {
     show(&mut ov, &page, &Radio::default());
     can_start(&page, true, "");
 }
+
+/// Boxes (left, top, right, bottom, in CSS pixels) of everything drawn on the page.
+const DRAWN_BOXES: &str = r##"(() => {
+  const out = [];
+  for (const e of document.querySelectorAll("#root :is(path, rect, circle, ellipse, line, polyline, polygon, text, image)")) {
+    if (e.closest("defs, clipPath, mask, marker, pattern, filter")) continue;
+    const b = e.getBoundingClientRect();
+    if (b.width || b.height) out.push([b.left, b.top, b.right, b.bottom]);
+  }
+  return JSON.stringify(out);
+})()"##;
+
+#[test]
+fn the_obs_page_is_see_through_around_the_radio() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(page) = Page::open_sized(&ov, "?trail=0", (680, 830)) else {
+        return;
+    };
+    // like OBS: the browser's own background is see-through too
+    page.tab.set_transparent_background_color().unwrap();
+    // with things lit, so their glow is included
+    show(
+        &mut ov,
+        &page,
+        &Radio {
+            sa: 1,
+            se: true,
+            ..Radio::default()
+        },
+    );
+    let boxes: Vec<[f64; 4]> =
+        serde_json::from_str(page.eval(DRAWN_BOXES).as_str().unwrap()).unwrap();
+    let png = page
+        .tab
+        .capture_screenshot(
+            headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption::Png,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+    std::fs::write(
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("render-see-through.png"),
+        &png,
+    )
+    .unwrap();
+    let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut rgba = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut rgba).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgba, "no alpha channel");
+    let (w, h) = (info.width as usize, info.height as usize);
+    let alpha = |x: usize, y: usize| rgba[(y * w + x) * 4 + 3];
+
+    // Glows and outlines reach a few pixels past an element's box (the glow blurs by 3).
+    const REACH: f64 = 12.0;
+    let mut near = vec![false; w * h];
+    for &[x0, y0, x1, y1] in &boxes {
+        let clamp = |v: f64, max: usize| v.clamp(0.0, max as f64) as usize;
+        for y in clamp(y0 - REACH, h)..clamp(y1 + REACH, h) {
+            for x in clamp(x0 - REACH, w)..clamp(x1 + REACH, w) {
+                near[y * w + x] = true;
+            }
+        }
+    }
+    let stray: Vec<(usize, usize, u8)> = (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| !near[y * w + x] && alpha(x, y) > 0)
+        .map(|(x, y)| (x, y, alpha(x, y)))
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "{} pixels drawn away from the radio, e.g. (x, y, alpha) {:?}",
+        stray.len(),
+        &stray[..stray.len().min(10)]
+    );
+    // and the capture really keeps transparency: clear around, solid on the radio
+    let clear = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 0).count();
+    assert!(clear > w * h / 5, "only {clear} of {} pixels clear", w * h);
+    let body = page.eval(
+        "(() => { const b = document.getElementById('frontBody').getBoundingClientRect(); \
+         return JSON.stringify([Math.round(b.x + b.width / 2), Math.round(b.y + b.height * 0.9)]); })()",
+    );
+    let [bx, by]: [usize; 2] = serde_json::from_str(body.as_str().unwrap()).unwrap();
+    // the body's colour is 92% opaque, so a hint of the scene shows through
+    assert!(
+        alpha(bx, by) > 200,
+        "the radio's body: alpha {}",
+        alpha(bx, by)
+    );
+    eprintln!(
+        "{clear} of {} pixels clear ({:.0}%); everything else is the radio and its strip",
+        w * h,
+        100.0 * clear as f64 / (w * h) as f64
+    );
+}
