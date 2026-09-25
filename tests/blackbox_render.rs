@@ -1272,8 +1272,10 @@ fn the_radio_floats_on_a_shadow_that_can_be_adjusted() {
     slide("shDistance", 20);
     looks("180,20,6,60");
     let (_, x, y, _) = shadow();
+    // (not exactly straight: the radio isn't the same left and right, so a little more of
+    // the shadow shows on one side, by how much depends on the machine's fonts)
     assert!(
-        y > y0 + 5.0 && (x - x0).abs() < 2.0,
+        y > y0 + 5.0 && (x - x0).abs() < 0.15 * (y - y0),
         "down: {x:.1},{y:.1} from {x0:.1},{y0:.1}"
     );
     // (what shows of it then is down the radio's right side, so only x says where it went)
