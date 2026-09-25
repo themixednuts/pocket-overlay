@@ -87,12 +87,23 @@
   .device { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .device b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status .obs, #lanNote { grid-column: 1 / -1; }
-  #lanNote { font-size: 13px; min-height: 1.3em; overflow-wrap: anywhere; }
+  #lanNote { font-size: 13px; min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #lanNote.warn { white-space: normal; overflow-wrap: anywhere; } /* a reason it failed is read in full */
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #555a61; flex: none; }
   .dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .dot.demo { background: var(--warn); }
-  .obs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
-  .obs code { color: var(--ink); overflow-wrap: anywhere; }
+  /* The OBS address stays on one line however long this PC's name is (cut short with …, in
+     full on hover and when copied), so switching LAN never changes the header's height. On a
+     narrow page it gets a line of its own under the size and Copy URL. */
+  .obs { display: grid; grid-template-columns: auto minmax(0, max-content) auto auto; grid-template-areas: "label url size copy";
+         justify-content: start; align-items: center; gap: 6px 8px; font-size: 13px; }
+  .obs > .hint { grid-area: label; }
+  #obsUrl { grid-area: url; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #obsSize { grid-area: size; white-space: nowrap; }
+  #copyUrl { grid-area: copy; justify-self: start; }
+  @container (max-width: 520px) {
+    .obs { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "label size copy" "url url url"; }
+  }
   .card { border: 1px solid #33363c; border-radius: 8px; padding: 12px 14px; background: #15161a; min-width: 0; }
   .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; margin: 0 0 12px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 16px; align-items: center; }
@@ -952,14 +963,15 @@ function showObsUrl(s) {
   }
   const name = s.lan && network?.name, ip = s.lan && network?.ip;
   obsUrl = urlFor(name || ip || "127.0.0.1");
-  $("obsUrl").textContent = obsUrl;
+  $("obsUrl").textContent = $("obsUrl").title = obsUrl;
   const note = $("lanNote");
   note.className = s.lan_error ? "warn" : "hint";
   note.textContent = s.lan_error
     || (!s.lan ? "Switch on LAN for OBS on another PC"
       : name && ip ? `or ${urlFor(ip)}` : network && !name && !ip ? "No network found" : "");
+  note.title = note.textContent;
 }
-$("obsUrl").textContent = obsUrl;
+$("obsUrl").textContent = $("obsUrl").title = obsUrl;
 $("lanOn").onchange = e => {
   lanPending = e.target.checked;
   send("set_lan", { on: lanPending });
