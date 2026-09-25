@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <script src="traced.js"></script>
 <style>
-  /* Query options (override the saved look for one page): ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0|1 &readout=0|1 &labels=0|1 &antenna=0|1 &trail=0 &debug=1 &setup=1 */
+  /* Query options (override the saved look for one page): ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0|1 &readout=0|1 &labels=0|1 &antenna=0|1 &shadow=0|1 &trail=0 &debug=1 &setup=1 */
   :root {
     --accent: #39ff88;
     --shell: rgba(58, 52, 47, 0.92);
@@ -65,6 +65,8 @@
      drawing's width / height, set by applyParts. */
   body.setup { background: #0e0f11; display: grid; height: 100vh; }
   body.setup svg#root { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+  /* adjusting the shadow: a light checkerboard (OBS's see-through) behind the radio, so it shows */
+  body.setup.shadow-preview svg#root { background: repeating-conic-gradient(#9aa1aa 0 25%, #b4bac2 0 50%) 0 0 / 24px 24px; }
   @media (min-aspect-ratio: 5/4) {
     body.setup { grid-template-columns: minmax(0, calc(100vh * var(--draw-aspect, .82))) minmax(320px, 1fr); }
   }
@@ -72,7 +74,9 @@
     body.setup { grid-template-rows: minmax(0, min(48vh, calc(100vw / var(--draw-aspect, .82)))) minmax(0, 1fr); }
   }
   #setup { display: none; padding: 12px max(clamp(12px, 4%, 20px), calc((100% - 1100px) / 2)) 24px; font-size: 14px;
-           min-width: 0; min-height: 0; overflow-y: auto; container-type: inline-size; align-content: start; gap: 12px; }
+           min-width: 0; min-height: 0; overflow-y: auto; container-type: inline-size; align-content: start; gap: 12px;
+           /* room for the scrollbar kept either way, so opening something that makes it scroll moves nothing sideways */
+           scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #3a3c42 transparent; }
   body.setup #setup { display: grid; }
   #setup [hidden] { display: none !important; }
   .hint { color: var(--dim); }
@@ -98,6 +102,24 @@
   .switches { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 28px; }
   .switches .toggle { white-space: nowrap; }
   @container (min-width: 720px) { .switches { grid-template-columns: repeat(4, max-content); } }
+  /* the shadow's sliders, under its switch: name, slider, value */
+  .sliders { grid-column: 2; display: grid; grid-template-columns: max-content minmax(90px, 220px) 7ch; gap: 8px 12px;
+             align-items: center; font-size: 13px; margin-top: -4px; }
+  .sliders label { color: var(--dim); }
+  .sliders output { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sliders .dir { display: inline-block; font-style: normal; margin-right: 4px; }
+  .sliders button { grid-column: 1 / -1; justify-self: start; }
+  #setup button[aria-expanded="true"] { border-color: var(--accent); }
+  /* sliders drawn like the switches: a thin track, filled in the accent up to a round knob */
+  #setup input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
+  #setup input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) var(--fill, 50%), #3a3c42 var(--fill, 50%)); }
+  #setup input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 0; border-radius: 50%; background: #e9ecf1; }
+  #setup input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: #3a3c42; }
+  #setup input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+  #setup input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #e9ecf1; }
+  #setup input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #setup input[type=range]:disabled { opacity: .4; cursor: not-allowed; }
   @container (max-width: 340px) { .switches { grid-template-columns: max-content; } }
   .cardhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .cardhead h2 { margin: 0; }
@@ -135,12 +157,25 @@
   table { border-collapse: collapse; width: 100%; }
   td { text-align: left; padding: 4px 10px 4px 0; border-top: 1px solid #23252a; font-variant-numeric: tabular-nums; }
   td:last-child { padding-right: 0; white-space: nowrap; }
+  th { text-align: left; padding: 0 10px 6px 0; font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }
+  th:last-child { padding-right: 0; }
+  td.now { white-space: nowrap; }
+  table:has(> tbody:empty) { display: none; } /* no header over nothing before the first update */
+  /* where a switch lights up: a button per position, filled where it does; the ring is where it is now */
+  .lights { display: inline-flex; gap: 4px; vertical-align: middle; margin: -2px 0; }
+  #setup .lights button { width: 22px; height: 18px; padding: 0; border-radius: 4px; font-size: 12px; line-height: 1;
+                          color: var(--dim); background: #1c1d21; border-color: #3a3c42; }
+  #setup .lights button[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: #07140c; font-weight: 700; }
+  #setup .lights button.here { box-shadow: 0 0 0 1.5px #15161a, 0 0 0 3px var(--ink); }
   .mini { display: inline-block; width: 120px; height: 8px; background: #2a2c31; position: relative; vertical-align: middle; border-radius: 2px; margin-right: 6px; }
   .mini i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
   /* a narrow settings column: the table's text wraps and the value bars shrink, so it never runs off the side */
-  @container (max-width: 420px) { table { font-size: 12px; } td { padding-right: 6px; } .mini { width: 48px; } }
+  @container (max-width: 420px) { table { font-size: 12px; } td, th { padding-right: 6px; } .mini { width: 48px; } }
+  /* a phone: the value bars go (the number stays), so the Lights up column fits */
+  @container (max-width: 360px) { .mini { display: none; } }
   /* and the labels go above their controls */
-  @container (max-width: 360px) { .form { grid-template-columns: minmax(0, 1fr); gap: 4px; } .ctl { margin-bottom: 8px; } }
+  @container (max-width: 360px) { .form { grid-template-columns: minmax(0, 1fr); gap: 4px; } .ctl { margin-bottom: 8px; }
+                                   .sliders { grid-column: auto; margin: 0 0 8px; } }
 </style>
 </head>
 <body>
@@ -165,6 +200,12 @@
     <clipPath id="bodyClip"><path id="bodyClipPath"/></clipPath>
     <clipPath id="wheelClip"><ellipse cx="0" cy="0" rx="34" ry="16"/></clipPath>
     <clipPath id="wheelClipFront"><ellipse cx="0" cy="0" rx="19" ry="9"/></clipPath>
+    <!-- the radio's shadow: its outline, blurred and moved the way it falls (applyShadowLook) -->
+    <filter id="float" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur id="floatBlur" in="SourceAlpha"/>
+      <feOffset id="floatOffset"/>
+      <feComponentTransfer><feFuncA id="floatAlpha" type="linear"/></feComponentTransfer>
+    </filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 Z" fill="var(--warn)"/>
     </marker>
@@ -193,6 +234,8 @@
 
   <!-- ============ front view (traced from the front photo) ============ -->
   <g id="front" class="dimmable">
+    <!-- copies of the antenna and body, so the shadow follows them (a hidden antenna too) -->
+    <g id="shadow" filter="url(#float)" pointer-events="none"><use id="shadowAntenna" href="#antenna"/><use href="#frontBody"/></g>
     <path id="antenna" fill="#2a2b2f" stroke="#4a4c52" stroke-width="2"/>
     <!-- SB / SC toggle nubs: height shows which way they're thrown -->
     <rect id="sbNub" data-test="sb-nub" class="plastic" x="348" width="29" rx="9"/>
@@ -278,6 +321,27 @@
         <span id="skinMsg" class="hint"></span>
       </div>
 
+      <span class="label">Shadow</span>
+      <div class="ctl">
+        <label class="toggle" title="A soft shadow under the radio, as if it floats over the scene"><input type="checkbox" role="switch" id="showShadow" data-test="show-shadow" aria-label="Show the shadow" checked></label>
+        <button id="shadowAdjust" class="small" data-test="shadow-adjust" aria-expanded="false" aria-controls="shadowPanel">Adjust</button>
+      </div>
+      <div id="shadowPanel" class="sliders" data-test="shadow-panel" hidden>
+        <label for="shAngle" title="Which way the shadow falls">Angle</label>
+        <input type="range" id="shAngle" data-test="shadow-angle" min="0" max="355" step="5">
+        <output for="shAngle" id="shAngleOut"></output>
+        <label for="shDistance" title="How far from the radio it falls">Distance</label>
+        <input type="range" id="shDistance" data-test="shadow-distance" min="0" max="30">
+        <output for="shDistance" id="shDistanceOut"></output>
+        <label for="shBlur" title="How soft its edge is">Blur</label>
+        <input type="range" id="shBlur" data-test="shadow-blur" min="0" max="20">
+        <output for="shBlur" id="shBlurOut"></output>
+        <label for="shStrength" title="How dark it is">Strength</label>
+        <input type="range" id="shStrength" data-test="shadow-strength" min="0" max="100" step="5">
+        <output for="shStrength" id="shStrengthOut"></output>
+        <button id="shadowReset" class="small" data-test="shadow-reset">Reset</button>
+      </div>
+
       <span class="label">Show</span>
       <div class="ctl switches">
         <label class="toggle" title="The THR / RUD / ELE / AIL line under the radio"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" checked>Readout</label>
@@ -315,7 +379,7 @@
       <div id="warn"></div>
       <div id="found" class="hint"></div>
     </div>
-    <table><tbody id="map"></tbody></table>
+    <table><thead><tr><th>Control</th><th>Channel</th><th>Now</th><th>Lights up</th></tr></thead><tbody id="map"></tbody></table>
   </section>
 </div>
 <div id="debug"></div>
@@ -328,9 +392,9 @@ if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.ge
 const OTHER_PC = /^https?:$/.test(location.protocol) && !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 const SETUP = q.get("setup") === "1" && !OTHER_PC;
 const SIDES = q.get("sides") === "1";
-// ?readout=0/1, ?channels=0/1, ?labels=0/1 and ?antenna=0/1 override the saved choice for one page
+// ?readout=0/1, ?channels=0/1, ?labels=0/1, ?antenna=0/1 and ?shadow=0/1 override the saved choice for one page
 const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels"), LABELS_PARAM = q.get("labels"),
-  ANTENNA_PARAM = q.get("antenna");
+  ANTENNA_PARAM = q.get("antenna"), SHADOW_PARAM = q.get("shadow");
 const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
 const DEBUG = q.get("debug") === "1";
 const SKIN_PARAM = q.get("skin"); // a skin name, or "none" for the built-in drawing
@@ -394,17 +458,53 @@ function applyAntenna(antenna) {
   $("antenna").style.display = antenna ? "" : "none";
   $("root").dataset.antenna = +antenna;
 }
+function applyShadow(shadow) {
+  $("shadow").style.display = shadow ? "" : "none";
+  $("root").dataset.shadow = +shadow;
+}
+// How the shadow looks: which way it falls (degrees clockwise from straight up), how far,
+// how soft and how dark (percent).
+const SHADOW_DEFAULT = { angle: 180, distance: 11, blur: 6, strength: 60 };
+const SHADOW_KEYS = Object.keys(SHADOW_DEFAULT);
+const radioBox = (() => { // the body and antenna, which the shadow is cast from
+  const a = $("frontBody").getBBox(), b = $("antenna").getBBox();
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+})();
+let shownShadowLook, shadowPreview; // shadowPreview: the setup page's pick until the server echoes it
+function applyShadowLook(sh) {
+  const key = SHADOW_KEYS.map(k => sh[k]).join(",");
+  if (key === shownShadowLook) return;
+  shownShadowLook = key;
+  const rad = sh.angle * Math.PI / 180;
+  $("floatBlur").setAttribute("stdDeviation", sh.blur);
+  $("floatOffset").setAttribute("dx", (sh.distance * Math.sin(rad)).toFixed(2));
+  $("floatOffset").setAttribute("dy", (-sh.distance * Math.cos(rad)).toFixed(2));
+  $("floatAlpha").setAttribute("slope", sh.strength / 100);
+  // a filter only paints inside its region: the radio, grown by as far as the shadow reaches
+  const reach = sh.distance + 3 * sh.blur + 2;
+  for (const [k, v] of Object.entries({ x: radioBox.x - reach, y: radioBox.y - reach,
+    width: radioBox.width + 2 * reach, height: radioBox.height + 2 * reach })) $("float").setAttribute(k, v.toFixed(1));
+  $("root").dataset.shadowLook = key;
+}
+function savedShadow(s) {
+  const saved = s.shadow || SHADOW_DEFAULT;
+  if (shadowPreview && SHADOW_KEYS.every(k => shadowPreview[k] === saved[k])) shadowPreview = undefined;
+  return shadowPreview || saved;
+}
 const showPart = (param, saved) => (param === null ? saved : param !== "0");
 let showPreview; // the setup page's pick until the server echoes it
 function savedParts(s) {
   const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false,
-                  labels: s.show_labels !== false, antenna: s.show_antenna !== false };
+                  labels: s.show_labels !== false, antenna: s.show_antenna !== false, shadow: s.show_shadow !== false };
   if (showPreview && Object.keys(saved).every(k => showPreview[k] === saved[k])) showPreview = undefined;
   return showPreview || saved;
 }
 applyParts(showPart(READOUT_PARAM, true), showPart(CHANNELS_PARAM, true));
 applyLabels(showPart(LABELS_PARAM, true));
 applyAntenna(showPart(ANTENNA_PARAM, true));
+applyShadow(showPart(SHADOW_PARAM, true));
+applyShadowLook(SHADOW_DEFAULT);
 if (!SIDES) { $("sideL").style.display = "none"; $("sideR").style.display = "none"; }
 if (DEBUG) $("debug").style.display = "block";
 
@@ -615,6 +715,8 @@ const STICK_MODES = {
 };
 const ARROW ={ 2: ["↑", "↓"], 3: ["↑", "–", "↓"] };
 const swText = (pos, n) => pos == null ? "n/a" : ARROW[n][pos];
+// Where S1 is, for lighting it up: 0 below its middle, 1 in it, 2 above.
+const s1Zone = v => v == null ? null : v < -0.02 ? 0 : v > 0.02 ? 2 : 1;
 function mapped(id, v) { $(id).classList.toggle("unmapped", v == null); }
 
 function render(s) {
@@ -628,28 +730,30 @@ function render(s) {
 
   drawGimbal(gL, s.left); drawGimbal(gR, s.right);
 
-  // SA / SD 2-pos paddles; lit = toward the pilot ("down", the + side in EdgeTX)
+  // Each switch lights up in the positions picked on the settings page (s.lit): by default
+  // SA and SD toward the pilot, SB and SC at either end, SE pressed, S1 off its middle.
+  const lights = (key, pos) => pos != null && !!s.lit?.[key]?.[pos];
   paddle("saSide", s.sa); paddle("sdSide", s.sd);
-  for (const [id, v] of [["saFront", s.sa], ["sdFront", s.sd], ["saSide", s.sa], ["sdSide", s.sd]]) {
+  for (const [id, key, v] of [["saFront", "SA", s.sa], ["sdFront", "SD", s.sd], ["saSide", "SA", s.sa], ["sdSide", "SD", s.sd]]) {
     mapped(id, v);
     const shape = id.endsWith("Side") ? $(id).firstElementChild : $(id);
-    shape.classList.toggle("lit", v === 1);
+    shape.classList.toggle("lit", lights(key, v));
   }
   nub("sbNub", s.sb); nub("scNub", s.sc);
   mapped("sbNub", s.sb); mapped("scNub", s.sc);
-  $("sbNub").classList.toggle("lit", s.sb != null && s.sb !== 1);
-  $("scNub").classList.toggle("lit", s.sc != null && s.sc !== 1);
+  $("sbNub").classList.toggle("lit", lights("SB", s.sb));
+  $("scNub").classList.toggle("lit", lights("SC", s.sc));
 
   for (const id of ["seFront", "seSide"]) {
     mapped(id, s.se);
-    $(id).querySelector(".plastic").classList.toggle("lit", s.se === 1);
+    $(id).querySelector(".plastic").classList.toggle("lit", lights("SE", s.se));
   }
   $("seSide").setAttribute("transform", s.se === 1 ? "translate(2 4)" : "");
 
   // S1: ribs roll with the value; the rim lights once it's off centre
   for (const [ribsId, rimId, , , travel] of S1_WHEELS) {
     $(ribsId).setAttribute("transform", `translate(${(clamp(s.s1 ?? 0) * travel).toFixed(2)} 0)`);
-    $(rimId).classList.toggle("litStroke", s.s1 != null && Math.abs(s.s1) > 0.02);
+    $(rimId).classList.toggle("litStroke", lights("S1", s1Zone(s.s1)));
     mapped(ribsId, s.s1);
   }
 
@@ -672,6 +776,8 @@ function render(s) {
   applyParts(showPart(READOUT_PARAM, parts.readout), showPart(CHANNELS_PARAM, parts.channels));
   applyLabels(showPart(LABELS_PARAM, parts.labels));
   applyAntenna(showPart(ANTENNA_PARAM, parts.antenna));
+  applyShadow(showPart(SHADOW_PARAM, parts.shadow));
+  applyShadowLook(savedShadow(s));
   if (!s.connected) {
     readoutText.replaceChildren();
     el("tspan", { class: "k" }, readoutText).textContent = "NO SIGNAL";
@@ -699,6 +805,7 @@ function render(s) {
 
   // test hooks: which input this frame shows
   root.dataset.channels = s.channels.join(",");
+  root.dataset.lit = JSON.stringify(s.lit ?? {});
   root.dataset.connected = s.connected;
 }
 
@@ -716,9 +823,66 @@ const LABEL = { left_y: "Left ↕", left_x: "Left ↔", right_y: "Right ↕", ri
 const MARKS = [["up", "↑"], ["mid", "−"], ["down", "↓"]];
 const chName = src => src.ch ? `CH${src.ch}`
   : MARKS.filter(([k]) => src[k]).map(([k, mark]) => `CH${src[k]}${mark}`).join(" ");
-function barCell(v) {
+function showBar(td, v) {
   const w = Math.min(Math.abs(v), 1) * 50, left = v < 0 ? 50 - w : 50; // % of the bar
-  return `<td><span class="mini"><i style="left:${left}%;width:${w}%"></i></span>${pct(v)}%</td>`;
+  const [bar, text] = td.children;
+  Object.assign(bar.firstElementChild.style, { left: `${left}%`, width: `${w}%` });
+  text.textContent = `${pct(v)}%`;
+}
+
+// Where each switch lights up on the overlay: a button per position, marked like the
+// overlay's labels, filled where it lights up.
+const LIGHT_MARKS = { SA: ARROW[2], SB: ARROW[3], SC: ARROW[3], SD: ARROW[2], SE: ["○", "●"], S1: ["−", "0", "+"] };
+const LIGHT_NAMES = {
+  SA: ["up", "down"], SB: ["up", "middle", "down"], SC: ["up", "middle", "down"], SD: ["up", "down"],
+  SE: ["released", "pressed"], S1: ["below the middle", "in the middle", "above the middle"],
+};
+const lightButtons = (key, lit) => `<span class="lights" role="group" aria-label="Where ${key} lights up">` +
+  LIGHT_MARKS[key].map((mark, p) => {
+    const name = `${key} ${LIGHT_NAMES[key][p]}`;
+    return `<button type="button" data-light="${key}" data-at="${p}" aria-pressed="${!!lit[p]}" aria-label="${name}" ` +
+      `title="${name}: ${lit[p] ? "lights up" : "stays dark"}">${mark}</button>`;
+  }).join("") + "</span>";
+$("map").onclick = e => {
+  const b = e.target.closest("button[data-light]");
+  if (!b) return;
+  const at = [...b.parentElement.children].map(x => x.getAttribute("aria-pressed") === "true");
+  at[b.dataset.at] = !at[b.dataset.at];
+  b.setAttribute("aria-pressed", at[b.dataset.at]); // shown now; the server's echo redraws it
+  send("set_lit", { control: b.dataset.light, at });
+};
+
+let mapBuilt; // what the table was built for; it's only rebuilt when that changes, so clicks on it aren't lost
+function renderMap(s) {
+  const rows = CONTROLS.map(([label, get, want, key]) => {
+    const src = get(s);
+    if (!src) return { label, ch: '<span class="hint">not set</span>' };
+    const lit = s.lit?.[label];
+    // a channel per position: the bar shows where the switch is, as one channel would
+    if (!src.ch) return { label, ch: chName(src), v: (s[key] ?? 1) - 1, lit };
+    const kind = s.kinds[src.ch - 1];
+    // CH9-32 are on/off over USB: fine for a 2-position switch, two positions for the rest.
+    const onOff = src.ch > 8 && want !== "switch2";
+    // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
+    const odd = !onOff && want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
+    const ch = `CH${src.ch}${src.invert ? ' <span class="hint">reversed</span>' : ""}` +
+      `${onOff ? ' <span class="hint" title="CH9-32 are on/off over USB, so this shows two positions">on/off</span>' : ""}` +
+      `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}`;
+    return { label, ch, v: (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1), lit };
+  });
+  const built = JSON.stringify(rows.map(r => [r.label, r.ch, r.v === undefined, r.lit]));
+  if (built !== mapBuilt) {
+    mapBuilt = built;
+    $("map").innerHTML = rows.map(r => `<tr><td>${r.label}</td><td>${r.ch}</td>` +
+      `<td class="now">${r.v === undefined ? "" : '<span class="mini"><i></i></span><span></span>'}</td>` +
+      `<td>${r.lit ? lightButtons(r.label, r.lit) : ""}</td></tr>`).join("");
+  }
+  rows.forEach((r, i) => {
+    const [, , now, lights] = $("map").rows[i].cells;
+    if (r.v !== undefined) showBar(now, r.v);
+    const here = r.label === "S1" ? s1Zone(s.s1) : s[r.label.toLowerCase()];
+    [...lights.querySelectorAll("button")].forEach((b, p) => b.classList.toggle("here", p === here));
+  });
 }
 
 function renderSetup(s) {
@@ -734,6 +898,8 @@ function renderSetup(s) {
   $("showChannels").checked = parts.channels;
   $("showLabels").checked = parts.labels;
   $("showAntenna").checked = parts.antenna;
+  $("showShadow").checked = parts.shadow;
+  showShadowControls(savedShadow(s), parts.shadow);
   $("obsSize").textContent = `680 × ${obsHeight(parts.readout, parts.channels)}`;
   if (s.skin_rev !== skinsRev) {
     skinsRev = s.skin_rev;
@@ -743,21 +909,7 @@ function renderSetup(s) {
     showSkinRemove();
   }
 
-  $("map").innerHTML = CONTROLS.map(([label, get, want, key]) => {
-    const src = get(s);
-    if (!src) return `<tr><td>${label}</td><td class="hint">not set</td><td></td></tr>`;
-    // a channel per position: the bar shows where the switch is, as one channel would
-    if (!src.ch) return `<tr><td>${label}</td><td>${chName(src)}</td>${barCell((s[key] ?? 1) - 1)}</tr>`;
-    const v = (s.channels[src.ch - 1] ?? 0) / 1024 * (src.invert ? -1 : 1);
-    const kind = s.kinds[src.ch - 1];
-    // CH9-32 are on/off over USB: fine for a 2-position switch, two positions for the rest.
-    const onOff = src.ch > 8 && want !== "switch2";
-    // Flag channels whose behaviour doesn't match the control (e.g. SB on a 2-pos channel).
-    const odd = !onOff && want && KIND[kind] && kind !== want && !(want === "switch2" && kind === "switch3");
-    return `<tr><td>${label}</td><td>CH${src.ch}${src.invert ? ' <span class="hint">reversed</span>' : ""}` +
-      `${onOff ? ' <span class="hint" title="CH9-32 are on/off over USB, so this shows two positions">on/off</span>' : ""}` +
-      `${odd ? ` <span class="warn" title="Moves like ${KIND[kind]}">⚠</span>` : ""}</td>${barCell(v)}</tr>`;
-  }).join("");
+  renderMap(s);
 
   const l = s.learn;
   const running = !!(l && l.target);
@@ -867,10 +1019,43 @@ $("accentPick").onchange = e => chooseAccent(e.target.value);
 $("accentReset").onclick = () => chooseAccent(null);
 function sendShow() {
   showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked,
-                  labels: $("showLabels").checked, antenna: $("showAntenna").checked };
+                  labels: $("showLabels").checked, antenna: $("showAntenna").checked, shadow: $("showShadow").checked };
   send("set_show", showPreview);
 }
-for (const id of ["showReadout", "showChannels", "showLabels", "showAntenna"]) $(id).onchange = sendShow;
+for (const id of ["showReadout", "showChannels", "showLabels", "showAntenna", "showShadow"]) $(id).onchange = sendShow;
+
+const SLIDER = { angle: "shAngle", distance: "shDistance", blur: "shBlur", strength: "shStrength" };
+const SHOWN = { angle: v => `<i class="dir" style="transform: rotate(${v}deg)">↑</i>${v}°`, distance: v => v, blur: v => v, strength: v => `${v}%` };
+function showShadowControls(sh, on) {
+  for (const k of SHADOW_KEYS) {
+    const input = $(SLIDER[k]);
+    if (document.activeElement !== input) input.value = sh[k];
+    input.disabled = !on;
+    input.style.setProperty("--fill", `${(input.value - input.min) / (input.max - input.min) * 100}%`);
+    $(`${SLIDER[k]}Out`).innerHTML = SHOWN[k](input.value);
+  }
+  $("shadowReset").disabled = !on || SHADOW_KEYS.every(k => sh[k] === SHADOW_DEFAULT[k]);
+}
+let shadowTimer;
+function chooseShadow(sh, dragging = false) {
+  shadowPreview = sh;
+  applyShadowLook(sh);
+  showShadowControls(sh, $("showShadow").checked);
+  clearTimeout(shadowTimer);
+  shadowTimer = setTimeout(() => send("set_shadow", sh), dragging ? 80 : 0);
+}
+const slidersNow = () => Object.fromEntries(SHADOW_KEYS.map(k => [k, Number($(SLIDER[k]).value)]));
+for (const k of SHADOW_KEYS) {
+  $(SLIDER[k]).oninput = () => chooseShadow(slidersNow(), true);
+  $(SLIDER[k]).onchange = () => chooseShadow(slidersNow());
+}
+$("shadowReset").onclick = () => chooseShadow({ ...SHADOW_DEFAULT });
+$("shadowAdjust").onclick = () => {
+  const open = $("shadowPanel").hidden;
+  $("shadowPanel").hidden = !open;
+  $("shadowAdjust").setAttribute("aria-expanded", open);
+  document.body.classList.toggle("shadow-preview", open);
+};
 
 // ---------------- skins ----------------
 // A skin wraps the radio's body like a vinyl skin: any PNG, scaled to cover the body and

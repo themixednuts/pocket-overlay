@@ -74,9 +74,13 @@ The OBS source is `http://127.0.0.1:7878/`, 680 wide and 830 tall (less with the
 
 A recording is plain text, one item per line: `name <text>`, `descriptor <hex>`, `wait <ms>`, `disconnect`, or a report as hex.
 
-Page options go in the query string: `accent=%23rrggbb`, `skin=name|none`, `channels=0|1`, `readout=0|1`, `labels=0|1` (the switch labels), `antenna=0|1`, `sides=1` (side views of the paddles, SE and S1), `trail=0`, `debug=1`, `setup=1`. The look ones override what's saved (`accent`, `skin`, `show_readout`, `show_channels`, `show_labels`, `show_antenna` in the settings file) for that one page.
+Page options go in the query string: `accent=%23rrggbb`, `skin=name|none`, `channels=0|1`, `readout=0|1`, `labels=0|1` (the switch labels), `antenna=0|1`, `shadow=0|1`, `sides=1` (side views of the paddles, SE and S1), `trail=0`, `debug=1`, `setup=1`. The look ones override what's saved (`accent`, `skin`, `show_readout`, `show_channels`, `show_labels`, `show_antenna`, `show_shadow` in the settings file) for that one page.
 
 The drawing is pinned to the top of the page (`preserveAspectRatio="xMidYMin meet"`) and the viewBox ends under whatever is shown, so hiding the strip under the radio never moves or resizes the radio in a scene; it only frees space at the bottom. The labels and the antenna sit inside the drawing: hiding them leaves the radio where it is (without the antenna, an empty space above it).
+
+Where each switch lights up is picked in the Channels table's "Lights up" column: a button per position, filled where it lights up, with a ring on the position the switch is in now. It's saved under `[lit]` by position (`SB = ["up", "down"]`; SE: `released`, `pressed`; S1: `"-"`, `mid`, `"+"`). A switch left out lights up where it always did: SA and SD toward you, SB and SC at either end, SE pressed, S1 either side of its middle (S1 is a pot, so its middle is dead centre, or the middle of a 3-position switch if the radio is set up to make it one).
+
+The shadow under the radio (the Shadow switch; Adjust for its angle, distance, blur and strength) is the outline of the body and antenna, blurred and moved the way it falls, saved under `[shadow]` when it isn't the default. The OBS source is only as wide as the radio, so a shadow falling sideways is cut off at the source's edges.
 
 ## Tests
 

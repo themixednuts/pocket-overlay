@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
 
-use crate::config::Config;
+use crate::config::{Config, Shadow};
 use crate::detect::Detector;
 use crate::input::RawState;
 use crate::learn::{LearnStatus, Learner};
@@ -36,8 +36,9 @@ pub enum Command {
     SetAccent {
         accent: Option<String>,
     },
-    /// `{"cmd":"set_show","readout":true,"channels":false,"labels":true,"antenna":true}`:
-    /// what shows under and around the radio (the switch labels and antenna, if left out).
+    /// `{"cmd":"set_show","readout":true,"channels":false,"labels":true,"antenna":true,
+    /// "shadow":true}`: what shows under and around the radio (the switch labels, antenna and
+    /// shadow, if left out).
     SetShow {
         readout: bool,
         channels: bool,
@@ -45,6 +46,22 @@ pub enum Command {
         labels: bool,
         #[serde(default = "yes")]
         antenna: bool,
+        #[serde(default = "yes")]
+        shadow: bool,
+    },
+    /// `{"cmd":"set_shadow","angle":180,"distance":11,"blur":6,"strength":60}`: how the
+    /// shadow under the radio looks (see `config::Shadow`), saved.
+    SetShadow {
+        angle: u16,
+        distance: u8,
+        blur: u8,
+        strength: u8,
+    },
+    /// `{"cmd":"set_lit","control":"SB","at":[true,false,true]}`: where a switch lights up,
+    /// one flag per position (see `config::LIGHTS`).
+    SetLit {
+        control: String,
+        at: Vec<bool>,
     },
     /// `{"cmd":"set_lan","on":true}`: let OBS on other PCs in the network show the overlay.
     SetLan {
@@ -180,6 +197,7 @@ impl Engine {
                 channels,
                 labels,
                 antenna,
+                shadow,
             } => {
                 let c = &mut self.config;
                 let shown = [
@@ -187,13 +205,38 @@ impl Engine {
                     c.show_channels,
                     c.show_labels,
                     c.show_antenna,
+                    c.show_shadow,
                 ];
-                if [readout, channels, labels, antenna] != shown {
+                if [readout, channels, labels, antenna, shadow] != shown {
                     c.show_readout = readout;
                     c.show_channels = channels;
                     c.show_labels = labels;
                     c.show_antenna = antenna;
+                    c.show_shadow = shadow;
                     self.save("what shows under and around the radio");
+                }
+            }
+            Command::SetShadow {
+                angle,
+                distance,
+                blur,
+                strength,
+            } => {
+                let shadow = Shadow {
+                    angle,
+                    distance,
+                    blur,
+                    strength,
+                };
+                if shadow.valid() && shadow != self.config.shadow {
+                    self.config.shadow = shadow;
+                    self.save("the shadow");
+                }
+            }
+            Command::SetLit { control, at } => {
+                let changed = self.config.lit_at(&control).is_some_and(|now| now != at);
+                if changed && self.config.set_lit(&control, &at) {
+                    self.save(&format!("where {control} lights up"));
                 }
             }
             Command::SetLan { on } => {

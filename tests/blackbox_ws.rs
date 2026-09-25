@@ -1119,6 +1119,146 @@ async fn the_antenna_can_be_hidden() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_shadow_can_be_turned_off() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["show_shadow"], json!(true));
+    let show = |shadow: Option<bool>| {
+        let mut cmd = json!({ "cmd": "set_show", "readout": true, "channels": true });
+        if let Some(shadow) = shadow {
+            cmd["shadow"] = json!(shadow);
+        }
+        cmd
+    };
+    ws.send_json(show(Some(false))).await;
+    let state = ws
+        .wait_for("no shadow", |s| s["show_shadow"] == json!(false))
+        .await;
+    assert_eq!(state["show_antenna"], json!(true));
+    assert!(ov.config_text().contains("show_shadow = false"));
+    // a command from before there was a shadow keeps it
+    ws.send_json(show(None)).await;
+    ws.wait_for("shadow back", |s| s["show_shadow"] == json!(true))
+        .await;
+    assert!(!ov.config_text().contains("show_shadow"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_shadow_can_be_angled_moved_blurred_and_darkened() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    let default = json!({ "angle": 180, "distance": 11, "blur": 6, "strength": 60 });
+    assert_eq!(ws.last["shadow"], default);
+    let set = |shadow: Value| {
+        let mut cmd = shadow;
+        cmd["cmd"] = json!("set_shadow");
+        cmd
+    };
+
+    let picked = json!({ "angle": 135, "distance": 20, "blur": 12, "strength": 35 });
+    ws.send_json(set(picked.clone())).await;
+    ws.wait_for("the new shadow", |s| s["shadow"] == picked)
+        .await;
+    let saved = ov.config_text();
+    assert!(
+        saved.contains(
+            "[shadow]
+angle = 135
+distance = 20
+blur = 12
+strength = 35
+"
+        ),
+        "{saved}"
+    );
+
+    // out of range, or half a command: nothing changes
+    for bad in [
+        json!({ "angle": 360, "distance": 20, "blur": 12, "strength": 35 }),
+        json!({ "angle": 90, "distance": 31, "blur": 12, "strength": 35 }),
+        json!({ "angle": 90, "distance": 20, "blur": 21, "strength": 35 }),
+        json!({ "angle": 90, "distance": 20, "blur": 12, "strength": 101 }),
+        json!({ "angle": 90 }),
+    ] {
+        ws.send_json(set(bad)).await;
+    }
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["shadow"], picked);
+
+    // back to the default: out of the settings file
+    ws.send_json(set(default.clone())).await;
+    ws.wait_for("the default shadow", |s| s["shadow"] == default)
+        .await;
+    assert!(
+        !ov.config_text().contains("[shadow]"),
+        "{}",
+        ov.config_text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn where_each_switch_lights_up_can_be_picked() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    // one flag per position: SA and SD toward you, SB and SC at the ends, SE pressed, and
+    // S1 either side of its middle
+    assert_eq!(
+        ws.last["lit"],
+        json!({
+            "SA": [false, true], "SB": [true, false, true], "SC": [true, false, true],
+            "SD": [false, true], "SE": [false, true], "S1": [true, false, true],
+        })
+    );
+    let lit = |control: &str, at: Value| json!({ "cmd": "set_lit", "control": control, "at": at });
+
+    ws.send_json(lit("SA", json!([true, false]))).await;
+    ws.send_json(lit("SB", json!([false, true, false]))).await;
+    ws.send_json(lit("S1", json!([false, false, true]))).await;
+    ws.wait_for("S1 lit above its middle only", |s| {
+        s["lit"]["S1"] == json!([false, false, true])
+    })
+    .await;
+    let state = ws.last.clone();
+    assert_eq!(state["lit"]["SA"], json!([true, false]));
+    assert_eq!(state["lit"]["SB"], json!([false, true, false]));
+    let saved = ov.config_text();
+    assert!(
+        saved.contains(
+            "[lit]
+S1 = [\"+\"]
+SA = [\"up\"]
+SB = [\"mid\"]
+"
+        ),
+        "{saved}"
+    );
+
+    // a stick doesn't light up, and SA has no middle: nothing changes
+    ws.send_json(lit("left_x", json!([true, false]))).await;
+    ws.send_json(lit("SA", json!([true, true, true]))).await;
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["lit"]["SA"], json!([true, false]));
+    assert!(state["lit"].get("left_x").is_none());
+
+    // picked back to where they light up anyway: out of the settings file
+    ws.send_json(lit("SA", json!([false, true]))).await;
+    ws.send_json(lit("SB", json!([true, false, true]))).await;
+    ws.send_json(lit("S1", json!([true, false, true]))).await;
+    ws.wait_for("S1 as it was", |s| {
+        s["lit"]["S1"] == json!([true, false, true])
+    })
+    .await;
+    // (the file's header mentions [lit] too, so look for the table itself)
+    assert!(
+        !ov.config_text().contains("\n[lit]"),
+        "{}",
+        ov.config_text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_port_asked_for_stays_out_of_the_settings_when_they_change() {
     // the test app always runs with --port 0 (any free one); the saved port is the default
     let ov = Overlay::start();

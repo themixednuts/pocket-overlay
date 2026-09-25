@@ -1,8 +1,10 @@
 //! Turns a decoded report into the state the overlay page draws.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
-use crate::config::{Config, Controls, Mapping, Positions, Source, Sticks};
+use crate::config::{Config, Controls, LIGHTS, Mapping, Positions, Shadow, Source, Sticks};
 use crate::detect::ChannelKind;
 use crate::edgetx;
 use crate::hid::Report;
@@ -37,9 +39,11 @@ pub struct OverlayState {
     /// Which parts show under the radio.
     pub show_readout: bool,
     pub show_channels: bool,
-    /// And the switch labels around it, and its antenna.
+    /// And the switch labels around it, its antenna and its shadow.
     pub show_labels: bool,
     pub show_antenna: bool,
+    pub show_shadow: bool,
+    pub shadow: Shadow,
     /// Other PCs in the home network may show the overlay, and why that failed if it did.
     pub lan: bool,
     pub lan_error: Option<String>,
@@ -48,6 +52,9 @@ pub struct OverlayState {
     /// Current channel assignments, for the setup view.
     pub sticks: Sticks,
     pub controls: Controls,
+    /// Where each switch (and S1) lights up: `"SB": [true, false, true]`, one flag per
+    /// position (up, mid, down; SE released, pressed; S1 below, at, above its middle).
+    pub lit: BTreeMap<&'static str, Vec<bool>>,
     /// Present while the channel-detection wizard runs (and after, until dismissed).
     pub learn: Option<LearnStatus>,
 }
@@ -103,11 +110,17 @@ pub fn map(
         show_channels: cfg.show_channels,
         show_labels: cfg.show_labels,
         show_antenna: cfg.show_antenna,
+        show_shadow: cfg.show_shadow,
+        shadow: cfg.shadow,
         lan: cfg.lan,
         lan_error: None,
         demo: raw.demo,
         sticks: cfg.sticks.clone(),
         controls: cfg.controls.clone(),
+        lit: LIGHTS
+            .iter()
+            .filter_map(|&(control, ..)| Some((control, cfg.lit_at(control)?)))
+            .collect(),
         learn,
     }
 }

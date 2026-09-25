@@ -933,6 +933,12 @@ fn the_antenna_can_be_hidden() {
         );
         let b = box_of(page, "#antenna");
         assert_eq!(b[2] > 0.0, shown, "antenna at {b:?}, shown {shown}");
+        let b = box_of(page, "#shadowAntenna");
+        assert_eq!(
+            b[2] > 0.0,
+            shown,
+            "the antenna's shadow at {b:?}, shown {shown}"
+        );
         // the SB and SC nubs on the top edge stay
         for nub in ["sb-nub", "sc-nub"] {
             assert!(
@@ -1061,6 +1067,265 @@ fn obs_on_another_pc_shows_the_overlay() {
     other.wait_until(
         "the other PC to lose the overlay",
         "document.getElementById('root').classList.contains('offline')",
+    );
+}
+
+#[test]
+fn where_a_switch_lights_up_can_be_picked() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    let obs = Page::open_sized(&ov, "?trail=0&accent=%23ff00ff", (680, 830)).unwrap();
+    let button = |control: &str, at: usize| {
+        format!("document.querySelector('[data-light={control}][data-at=\"{at}\"]')")
+    };
+    // click positions on the settings page until the overlay lights `control` up at `at`
+    let pick = |control: &str, clicks: &[usize], at: &str| {
+        for &i in clicks {
+            setup.eval(&format!("{}.click()", button(control, i)));
+        }
+        obs.wait_until(
+            &format!("{control} lit at {at}"),
+            &format!("JSON.parse(document.getElementById('root').dataset.lit).{control}.join() === '{at}'"),
+        );
+    };
+    let lit = |m: &Value, k: &str| m["fill"][k] == ACCENT;
+    let s1_lit = || {
+        obs.eval("document.getElementById('s1RimFront').classList.contains('litStroke')") == true
+    };
+
+    // as before: SA toward you, SB at either end
+    let m = show(
+        &mut ov,
+        &obs,
+        &Radio {
+            sa: 1,
+            ..Radio::default()
+        },
+    );
+    assert!(lit(&m, "sa-front") && lit(&m, "sb-nub"), "{m}");
+    let m = show(
+        &mut ov,
+        &obs,
+        &Radio {
+            sb: 1,
+            ..Radio::default()
+        },
+    );
+    assert!(!lit(&m, "sa-front") && !lit(&m, "sb-nub"), "{m}");
+
+    // SA: away from you instead
+    pick("SA", &[0, 1], "true,false");
+    let m = show(&mut ov, &obs, &Radio::default());
+    assert!(lit(&m, "sa-front"), "SA lit away from you\n{m}");
+    let m = show(
+        &mut ov,
+        &obs,
+        &Radio {
+            sa: 1,
+            ..Radio::default()
+        },
+    );
+    assert!(!lit(&m, "sa-front"), "SA dark toward you\n{m}");
+
+    // SB: only in the middle
+    pick("SB", &[0, 1, 2], "false,true,false");
+    for sb in 0..3u8 {
+        let m = show(
+            &mut ov,
+            &obs,
+            &Radio {
+                sb,
+                ..Radio::default()
+            },
+        );
+        assert_eq!(lit(&m, "sb-nub"), sb == 1, "SB at {sb}\n{m}");
+    }
+
+    // S1: above its middle only, then its middle too
+    pick("S1", &[0], "false,false,true");
+    for (s1, want) in [(-1.0, false), (0.0, false), (1.0, true)] {
+        show(
+            &mut ov,
+            &obs,
+            &Radio {
+                s1,
+                ..Radio::default()
+            },
+        );
+        assert_eq!(s1_lit(), want, "S1 at {s1}");
+    }
+    pick("S1", &[1], "false,true,true");
+    show(&mut ov, &obs, &Radio::default());
+    assert!(s1_lit(), "S1 lit in its middle");
+
+    // SE: released too
+    pick("SE", &[0], "true,true");
+    let m = show(&mut ov, &obs, &Radio::default());
+    assert!(lit(&m, "se-pad"), "SE lit released\n{m}");
+
+    // the ring on the settings page follows the switch, and the buttons stay put while the
+    // radio moves, so a click never lands on one that's being replaced
+    setup.eval(&format!("window.kept = {}", button("SB", 0)));
+    for sb in [2u8, 0, 1] {
+        show(
+            &mut ov,
+            &obs,
+            &Radio {
+                sb,
+                ..Radio::default()
+            },
+        );
+        setup.wait_until(
+            &format!("the ring on SB {sb}"),
+            &format!("{}.classList.contains('here')", button("SB", sb.into())),
+        );
+    }
+    assert_eq!(
+        setup.eval("window.kept.isConnected"),
+        true,
+        "the table was redrawn"
+    );
+
+    let saved = ov.config_text();
+    for line in [
+        r#"S1 = ["mid", "+"]"#,
+        r#"SA = ["up"]"#,
+        r#"SB = ["mid"]"#,
+        r#"SE = ["released", "pressed"]"#,
+    ] {
+        assert!(saved.contains(line), "{line} not in\n{saved}");
+    }
+    obs.screenshot("lit-where-picked");
+}
+
+#[test]
+fn the_radio_floats_on_a_shadow_that_can_be_adjusted() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open_sized(&ov, "?setup=1&trail=0", (1280, 800)) else {
+        return;
+    };
+    let obs = Page::open_sized(&ov, "?trail=0", (680, 830)).unwrap();
+    // the same scene without the shadow, to see what it adds
+    let bare = Page::open_sized(&ov, "?trail=0&shadow=0", (680, 830)).unwrap();
+    show(&mut ov, &obs, &Radio::default());
+    bare.wait_for_channels(&expected_channels(&ov.wiring.channels(&Radio::default())));
+    // what the shadow adds around the bare scene's radio (under the radio it only darkens the
+    // body a touch): its weight, where its middle is, and how many pixels it reaches
+    let (_, _, without) = alpha_map(&bare);
+    let shadow = || {
+        let (w, _, with) = alpha_map(&obs);
+        let (mut mass, mut x, mut y, mut spread) = (0.0, 0.0, 0.0, 0);
+        for (i, (&a, &b)) in with.iter().zip(&without).enumerate() {
+            let added = if b == 0 { f64::from(a) } else { 0.0 };
+            if added > 0.0 {
+                mass += added;
+                x += added * (i % w) as f64;
+                y += added * (i / w) as f64;
+            }
+            if added > 8.0 {
+                spread += 1;
+            }
+        }
+        (mass, x / mass, y / mass, spread)
+    };
+    let slide = |id: &str, v: u32| {
+        setup.eval(&format!(
+            "(i => {{ i.value = {v}; i.dispatchEvent(new Event('input')); i.dispatchEvent(new Event('change')); }})\
+             (document.getElementById('{id}'))"
+        ));
+    };
+    let looks = |look: &str| {
+        obs.wait_until(
+            look,
+            &format!("document.getElementById('root').dataset.shadowLook === '{look}'"),
+        );
+    };
+
+    // on by default
+    let (mass, _, _, default_spread) = shadow();
+    assert!(mass > 0.0, "no shadow");
+
+    // the sliders, next to the switch, don't move anything sideways when they open (they
+    // make the settings scroll here)
+    let card = || {
+        setup.eval(
+            "(b => `${b.x},${b.width}`)(document.querySelector('.card').getBoundingClientRect())",
+        )
+    };
+    let before = card();
+    setup.eval("document.getElementById('shadowAdjust').click()");
+    setup.wait_until(
+        "the sliders",
+        "!document.getElementById('shadowPanel').hidden",
+    );
+    assert_eq!(card(), before, "the settings moved sideways");
+
+    // Which way it falls: from where it is right under the radio (a halo, pulled up a
+    // little by the antenna), straight down by default, and right when angled that way
+    slide("shDistance", 0);
+    looks("180,0,6,60");
+    let (_, x0, y0, _) = shadow();
+    slide("shDistance", 20);
+    looks("180,20,6,60");
+    let (_, x, y, _) = shadow();
+    assert!(
+        y > y0 + 5.0 && (x - x0).abs() < 2.0,
+        "down: {x:.1},{y:.1} from {x0:.1},{y0:.1}"
+    );
+    // (what shows of it then is down the radio's right side, so only x says where it went)
+    slide("shAngle", 90);
+    looks("90,20,6,60");
+    let (_, x, _, _) = shadow();
+    assert!(x > x0 + 5.0, "right: x {x:.1} from {x0:.1}");
+    obs.screenshot("shadow-right");
+
+    // straight down again; blur spreads it out, none keeps a hard edge
+    slide("shAngle", 180);
+    slide("shDistance", 11);
+    slide("shBlur", 0);
+    looks("180,11,0,60");
+    let (_, _, _, sharp) = shadow();
+    slide("shBlur", 20);
+    looks("180,11,20,60");
+    let (_, _, _, soft) = shadow();
+    assert!(
+        soft > sharp * 2 && soft > default_spread,
+        "blur 0: {sharp} px, blur 20: {soft} px"
+    );
+
+    // strength 0: nothing
+    slide("shStrength", 0);
+    looks("180,11,20,0");
+    assert_eq!(shadow().0, 0.0, "a shadow at strength 0");
+    let saved = ov.config_text();
+    assert!(
+        saved.contains("[shadow]\nangle = 180\ndistance = 11\nblur = 20\nstrength = 0\n"),
+        "{saved}"
+    );
+
+    // Reset, then switched off on the settings page: the scene as without it, and saved
+    setup.eval("document.getElementById('shadowReset').click()");
+    looks("180,11,6,60");
+    assert!(
+        !ov.config_text().contains("\n[shadow]"),
+        "{}",
+        ov.config_text()
+    );
+    setup.eval("document.querySelector('[data-test=show-shadow]').click()");
+    obs.wait_until(
+        "no shadow",
+        "document.getElementById('root').dataset.shadow === '0'",
+    );
+    assert_eq!(shadow().0, 0.0, "a shadow while it's off");
+    assert!(ov.config_text().contains("show_shadow = false"));
+    assert_eq!(
+        setup.eval("document.getElementById('shAngle').disabled"),
+        true,
+        "sliders for a shadow that's off"
     );
 }
 
@@ -1718,6 +1983,9 @@ fn everything_stays_on_screen_at_any_size() {
     };
     show(&mut ov, &setup, &Radio::default());
     assert_on_screen(&setup, "setup page");
+    setup.eval("document.getElementById('shadowAdjust').click()");
+    assert_on_screen(&setup, "setup page, shadow sliders open");
+    setup.eval("document.getElementById('shadowAdjust').click()");
     setup.eval("document.getElementById('bStart').click()");
     for target in [
         "left_y", "left_x", "right_y", "right_x", "SA", "SB", "SC", "SD", "SE", "S1",
@@ -1811,8 +2079,37 @@ const DRAWN_BOXES: &str = r##"(() => {
     const b = e.getBoundingClientRect();
     if (b.width || b.height) out.push([b.left, b.top, b.right, b.bottom]);
   }
+  // the shadow paints anywhere in its filter's region: the radio, grown by how far it reaches
+  if (document.getElementById("shadow").getBoundingClientRect().width) {
+    const f = document.getElementById("float"), m = document.getElementById("root").getScreenCTM();
+    const [x, y, w, h] = ["x", "y", "width", "height"].map(a => +f.getAttribute(a));
+    out.push([m.a * x + m.e, m.d * y + m.f, m.a * (x + w) + m.e, m.d * (y + h) + m.f]);
+  }
   return JSON.stringify(out);
 })()"##;
+
+/// The page's transparency, pixel by pixel (width, height, alpha of each pixel), with the
+/// browser's own background see-through like OBS's.
+fn alpha_map(page: &Page) -> (usize, usize, Vec<u8>) {
+    page.tab.set_transparent_background_color().unwrap();
+    let png = page
+        .tab
+        .capture_screenshot(
+            headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption::Png,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+    let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut rgba = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut rgba).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgba, "no alpha channel");
+    let alpha = rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+    (info.width as usize, info.height as usize, alpha)
+}
 
 #[test]
 fn the_obs_page_is_see_through_around_the_radio() {

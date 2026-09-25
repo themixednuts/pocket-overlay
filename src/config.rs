@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -133,11 +134,82 @@ pub struct Config {
     /// Show the antenna on top of the radio.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub show_antenna: bool,
+    /// Draw a soft shadow under the radio, as if it floats over the scene.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_shadow: bool,
     /// Let OBS on other PCs in the home network show the overlay (they can only watch).
     #[serde(default, skip_serializing_if = "is_false")]
     pub lan: bool,
     pub sticks: Sticks,
     pub controls: Controls,
+    /// How the shadow under the radio looks, if not the default.
+    #[serde(default, skip_serializing_if = "Shadow::is_default")]
+    pub shadow: Shadow,
+    /// Where a switch (or S1) lights up on the overlay, if not where it does by default
+    /// (see [`LIGHTS`]): the positions it counts as on, e.g. `SA = ["up"]`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lit: BTreeMap<String, Vec<String>>,
+}
+
+/// The shadow under the radio: which way it falls and how far, how soft and how dark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Shadow {
+    /// Which way it falls, in degrees clockwise from straight up (180 = straight down).
+    pub angle: u16,
+    /// How far it falls, in the drawing's units (about a pixel in the 680-wide OBS source).
+    pub distance: u8,
+    /// How soft its edge is (the blur's spread, in the same units).
+    pub blur: u8,
+    /// How dark it is, in percent.
+    pub strength: u8,
+}
+
+impl Default for Shadow {
+    fn default() -> Self {
+        Self {
+            angle: 180,
+            distance: 11,
+            blur: 6,
+            strength: 60,
+        }
+    }
+}
+
+impl Shadow {
+    pub const MAX_DISTANCE: u8 = 30;
+    pub const MAX_BLUR: u8 = 20;
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn valid(&self) -> bool {
+        self.angle < 360
+            && self.distance <= Self::MAX_DISTANCE
+            && self.blur <= Self::MAX_BLUR
+            && self.strength <= 100
+    }
+}
+
+/// The controls that light up on the overlay: their positions in the order the page numbers
+/// them, and where each lights up by default. SA and SD toward you, SB and SC at either end,
+/// SE pressed, S1 either side of its middle (S1 is a pot, so "mid" is its dead centre, or
+/// the middle of a 3-position switch if the radio is set up to make it one).
+pub const LIGHTS: [(&str, &[&str], &[bool]); 6] = [
+    ("SA", &["up", "down"], &[false, true]),
+    ("SB", &["up", "mid", "down"], &[true, false, true]),
+    ("SC", &["up", "mid", "down"], &[true, false, true]),
+    ("SD", &["up", "down"], &[false, true]),
+    ("SE", &["released", "pressed"], &[false, true]),
+    ("S1", &["-", "mid", "+"], &[true, false, true]),
+];
+
+fn lights(control: &str) -> Option<(&'static [&'static str], &'static [bool])> {
+    LIGHTS
+        .iter()
+        .find(|(c, ..)| *c == control)
+        .map(|&(_, names, default)| (names, default))
 }
 
 /// `#rrggbb`, nothing else (the value ends up in the page's CSS).
@@ -162,7 +234,10 @@ impl Default for Config {
             show_channels: true,
             show_labels: true,
             show_antenna: true,
+            show_shadow: true,
             lan: false,
+            shadow: Shadow::default(),
+            lit: BTreeMap::new(),
             // Mode 2, AETR.
             sticks: Sticks {
                 left_x: Source {
@@ -234,7 +309,8 @@ impl Config {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
-        let text = format!("{HEADER}\n{}", toml::to_string_pretty(self)?);
+        // (not to_string_pretty: it spreads `SA = ["up", "down"]` over four lines)
+        let text = format!("{HEADER}\n{}", toml::to_string(self)?);
         std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
     }
 
@@ -264,7 +340,47 @@ impl Config {
         }
     }
 
+    /// Where `control` lights up: one flag per position (see [`LIGHTS`]).
+    pub fn lit_at(&self, control: &str) -> Option<Vec<bool>> {
+        let (names, default) = lights(control)?;
+        Some(match self.lit.get(control) {
+            Some(on) => names.iter().map(|n| on.iter().any(|o| o == n)).collect(),
+            None => default.to_vec(),
+        })
+    }
+
+    /// Makes `control` light up where `at` says, one flag per position. Returns false (and
+    /// changes nothing) for a control that doesn't light up or the wrong number of flags.
+    pub fn set_lit(&mut self, control: &str, at: &[bool]) -> bool {
+        let Some((names, default)) = lights(control).filter(|(n, _)| n.len() == at.len()) else {
+            return false;
+        };
+        if at == default {
+            self.lit.remove(control);
+        } else {
+            let on = names.iter().zip(at).filter(|&(_, &on)| on);
+            let on = on.map(|(name, _)| name.to_string()).collect();
+            self.lit.insert(control.to_string(), on);
+        }
+        true
+    }
+
     fn validate(&self) -> Result<()> {
+        if !self.shadow.valid() {
+            bail!(
+                "shadow: angle is 0-359, distance 0-{}, blur 0-{} and strength 0-100",
+                Shadow::MAX_DISTANCE,
+                Shadow::MAX_BLUR
+            );
+        }
+        for (control, on) in &self.lit {
+            let Some((names, _)) = lights(control) else {
+                bail!("lit.{control}: only SA, SB, SC, SD, SE and S1 light up");
+            };
+            if let Some(bad) = on.iter().find(|n| !names.contains(&n.as_str())) {
+                bail!("lit.{control}: {bad:?} isn't one of {}", names.join(", "));
+            }
+        }
         if !(1..=4).contains(&self.mode) {
             bail!("mode must be 1, 2, 3 or 4");
         }
@@ -332,6 +448,9 @@ const HEADER: &str = "\
 #
 # SB and SC can instead have a channel per position, on while the switch is there:
 # `up`, `mid` and `down` (two or three of them; with none on, it's the one left out).
+#
+# [lit] lists where a switch lights up, if you picked that under \"Lights up\" on the
+# settings page: `SB = [\"up\", \"down\"]` (SE: released, pressed; S1: \"-\", mid, \"+\").
 ";
 
 #[cfg(test)]
@@ -349,6 +468,37 @@ mod tests {
         changed.controls.sb = None;
         changed.save(&path).unwrap();
         assert_eq!(Config::load_or_create(&path).unwrap(), changed);
+    }
+
+    #[test]
+    fn where_switches_light_up_is_saved_by_name_and_only_when_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay.toml");
+        let mut cfg = Config::default();
+        assert_eq!(cfg.lit_at("SB"), Some(vec![true, false, true]));
+        assert!(cfg.set_lit("SB", &[false, true, false]));
+        assert!(cfg.set_lit("S1", &[false, false, true]));
+        // not a control that lights up, or the wrong number of positions
+        assert!(!cfg.set_lit("left_x", &[true, false]));
+        assert!(!cfg.set_lit("SA", &[true, true, true]));
+        cfg.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains(
+                "[lit]
+S1 = [\"+\"]
+SB = [\"mid\"]
+"
+            ),
+            "{text}"
+        );
+        let loaded = Config::load_or_create(&path).unwrap();
+        assert_eq!(loaded.lit_at("SB"), Some(vec![false, true, false]));
+        assert_eq!(loaded.lit_at("S1"), Some(vec![false, false, true]));
+        // back to where it lights up anyway: out of the file again
+        cfg.set_lit("SB", &[true, false, true]);
+        cfg.set_lit("S1", &[true, false, true]);
+        assert!(cfg.lit.is_empty());
     }
 
     #[test]
@@ -385,7 +535,17 @@ mod tests {
             down: Some(40),
             ..Positions::default()
         });
+        let lit = |control: &str, at: &str| {
+            let mut cfg = Config::default();
+            cfg.lit.insert(control.into(), vec![at.into()]);
+            cfg
+        };
         for (cfg, reason) in [
+            (lit("SA", "mid"), r#"lit.SA: "mid" isn't one of up, down"#),
+            (
+                lit("left_x", "up"),
+                "lit.left_x: only SA, SB, SC, SD, SE and S1 light up",
+            ),
             (no_ch, "controls.SB: ch must be 1..=32"),
             (past_32, "sticks.left_x: ch must be 1..=32"),
             (
