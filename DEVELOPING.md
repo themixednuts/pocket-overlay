@@ -44,7 +44,7 @@ The server listens on 127.0.0.1 only and answers only requests whose `Host` (and
 
 ### OBS on another PC
 
-With the radio on a gaming PC and OBS on a streaming PC, the "Other PC" switch next to the OBS URL (or starting with `--lan`; both save `lan = true` in the settings) opens the port to the home network (`src/network.rs`). No tunnel is needed, since both PCs are behind the same router. The console always prints the address for other PCs, and while sharing is off, how to turn it on.
+With the radio on a gaming PC and OBS on a streaming PC, the "LAN" switch over the OBS URL on the settings page (or starting with `--lan`; both save `lan = true` in the settings) opens the port to the home network (`src/network.rs`). No tunnel is needed, since both PCs are behind the same router. The console always prints the address for other PCs, and while sharing is off, how to turn it on.
 
 - **Listening:** the server switches between 127.0.0.1 and every address (IPv6 and IPv4 on one socket) on the same port, without a restart. Open connections carry on.
 - **Addresses:** the URL for the other PC uses this PC's name with `.local` (`http://GAMING-PC.local:7878/`), so it survives a new IP address from the router; Windows, Macs, Linux and phones all find `.local` names, while the bare name only works between Windows PCs. The setup page shows the IP address too, for networks where the name isn't found.
@@ -64,18 +64,19 @@ pocket-overlay --demo               # moving fake input
 pocket-overlay --monitor            # raw CH1-32 in the terminal (~ analog, 2/3 = switch type)
 pocket-overlay --record flight.txt  # real radio, and save every report
 pocket-overlay --replay flight.txt  # play a recording back (`-` = stdin)
-pocket-overlay --config <file> --port <n>
+pocket-overlay --port 9000          # always this port, never moved (e.g. in a shortcut); 0 = any free one
+pocket-overlay --config <file>
 ```
 
-If the port is taken by a running pocket-overlay (it answers `/state`), a second copy opens that one's settings page and exits. If another program has the port from the settings file, it takes a random free port and saves it, so the OBS URL stays the same from then on; a port given with `--port` is used as is, or it exits with an error.
+If the port is taken by a running pocket-overlay (it answers `/state`), a second copy opens that one's settings page and exits. If another program has the port from the settings file, it takes a random free port and saves it, so the OBS URL stays the same from then on. A port given with `--port` is used for that run and never moved or saved: it exits with an error if another program has it. Starting with it every time (from a shortcut, say) gives an OBS URL that never changes; without it, the saved port is used. `--port 0` takes any free port.
 
 The OBS source is `http://127.0.0.1:7878/`, 680 wide and 830 tall (less with the readout or channel bars hidden; the setup page and the console show the size for the saved choice).
 
 A recording is plain text, one item per line: `name <text>`, `descriptor <hex>`, `wait <ms>`, `disconnect`, or a report as hex.
 
-Page options go in the query string: `accent=%23rrggbb`, `skin=name|none`, `channels=0|1`, `readout=0|1`, `labels=0|1` (the switch labels), `sides=1` (side views of the paddles, SE and S1), `trail=0`, `debug=1`, `setup=1`. The look ones override what's saved (`accent`, `skin`, `show_readout`, `show_channels`, `show_labels` in the settings file) for that one page.
+Page options go in the query string: `accent=%23rrggbb`, `skin=name|none`, `channels=0|1`, `readout=0|1`, `labels=0|1` (the switch labels), `antenna=0|1`, `sides=1` (side views of the paddles, SE and S1), `trail=0`, `debug=1`, `setup=1`. The look ones override what's saved (`accent`, `skin`, `show_readout`, `show_channels`, `show_labels`, `show_antenna` in the settings file) for that one page.
 
-The drawing is pinned to the top of the page (`preserveAspectRatio="xMidYMin meet"`) and the viewBox ends under whatever is shown, so hiding the strip under the radio never moves or resizes the radio in a scene; it only frees space at the bottom.
+The drawing is pinned to the top of the page (`preserveAspectRatio="xMidYMin meet"`) and the viewBox ends under whatever is shown, so hiding the strip under the radio never moves or resizes the radio in a scene; it only frees space at the bottom. The labels and the antenna sit inside the drawing: hiding them leaves the radio where it is (without the antenna, an empty space above it).
 
 ## Tests
 

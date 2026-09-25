@@ -537,7 +537,7 @@ fn a_saved_port_taken_by_another_program_moves_to_a_free_one_for_good() {
     .save(&cfg)
     .unwrap();
 
-    let (moved, log) = start_from_settings(&cfg);
+    let (moved, log) = start_from_settings(&cfg, &[]);
     assert_ne!(moved, taken);
     let notice = format!("Port {taken} is used by another program, so this now uses port {moved}");
     assert!(log.iter().any(|l| l.contains(&notice)), "{log:#?}");
@@ -545,7 +545,7 @@ fn a_saved_port_taken_by_another_program_moves_to_a_free_one_for_good() {
     assert!(saved.contains(&format!("port = {moved}")), "{saved}");
 
     // next time it goes straight to the saved port, so the OBS URL keeps working
-    let (again, log) = start_from_settings(&cfg);
+    let (again, log) = start_from_settings(&cfg, &[]);
     assert_eq!(again, moved, "{log:#?}");
     assert!(
         !log.iter().any(|l| l.contains("another program")),
@@ -553,12 +553,43 @@ fn a_saved_port_taken_by_another_program_moves_to_a_free_one_for_good() {
     );
 }
 
-/// Starts the app with the port from its settings file, and returns the port it serves on
+#[test]
+fn a_port_asked_for_is_used_but_not_saved() {
+    let free_port = || {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    };
+    let (saved_port, asked) = (free_port(), free_port());
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("overlay.toml");
+    pocket_overlay::config::Config {
+        port: saved_port,
+        ..Default::default()
+    }
+    .save(&cfg)
+    .unwrap();
+
+    // the flag wins for that run (a shortcut with it always gets the same URL)...
+    let (port, log) = start_from_settings(&cfg, &["--port", &asked.to_string()]);
+    assert_eq!(port, asked, "{log:#?}");
+    let saved = std::fs::read_to_string(&cfg).unwrap();
+    assert!(saved.contains(&format!("port = {saved_port}")), "{saved}");
+    // ...and without it, the saved port as before
+    let (port, log) = start_from_settings(&cfg, &[]);
+    assert_eq!(port, saved_port, "{log:#?}");
+}
+
+/// Starts the app with its settings file (and `args`), and returns the port it serves on
 /// and what it printed up to then. The app is stopped again.
-fn start_from_settings(cfg: &std::path::Path) -> (u16, Vec<String>) {
+fn start_from_settings(cfg: &std::path::Path, args: &[&str]) -> (u16, Vec<String>) {
     use std::io::{BufRead, BufReader};
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_pocket-overlay"))
-        .args(["--replay", "-", "--no-browser", "--config"])
+        .args(["--replay", "-", "--no-browser"])
+        .args(args)
+        .arg("--config")
         .arg(cfg)
         .stdin(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1057,6 +1088,50 @@ async fn switch_labels_can_be_hidden() {
     ws.wait_for("labels back", |s| s["show_labels"] == json!(true))
         .await;
     assert!(!ov.config_text().contains("show_labels"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_antenna_can_be_hidden() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["show_antenna"], json!(true));
+
+    let show = |antenna: Option<bool>| {
+        let mut cmd =
+            json!({ "cmd": "set_show", "readout": true, "channels": true, "labels": true });
+        if let Some(antenna) = antenna {
+            cmd["antenna"] = json!(antenna);
+        }
+        cmd
+    };
+    ws.send_json(show(Some(false))).await;
+    let state = ws
+        .wait_for("antenna hidden", |s| s["show_antenna"] == json!(false))
+        .await;
+    // on its own: the rest stays shown
+    assert_eq!(state["show_labels"], json!(true));
+    assert!(ov.config_text().contains("show_antenna = false"));
+    // a command from before the antenna could be hidden shows it
+    ws.send_json(show(None)).await;
+    ws.wait_for("antenna back", |s| s["show_antenna"] == json!(true))
+        .await;
+    assert!(!ov.config_text().contains("show_antenna"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_port_asked_for_stays_out_of_the_settings_when_they_change() {
+    // the test app always runs with --port 0 (any free one); the saved port is the default
+    let ov = Overlay::start();
+    assert_ne!(ov.port, 7878);
+    let mut ws = Ws::connect(ov.port).await;
+    ws.send_json(json!({ "cmd": "set_show", "readout": false, "channels": true }))
+        .await;
+    ws.wait_for("readout hidden", |s| s["show_readout"] == json!(false))
+        .await;
+    let saved = ov.config_text();
+    assert!(saved.contains("show_readout = false"), "{saved}");
+    // so the same command next time still finds its port, and without it the saved one
+    assert!(saved.contains("port = 7878"), "{saved}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

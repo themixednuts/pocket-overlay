@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <script src="traced.js"></script>
 <style>
-  /* Query options (override the saved look for one page): ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0|1 &readout=0|1 &trail=0 &debug=1 &setup=1 */
+  /* Query options (override the saved look for one page): ?accent=%2300e0ff &skin=name|none &sides=1 &channels=0|1 &readout=0|1 &labels=0|1 &antenna=0|1 &trail=0 &debug=1 &setup=1 */
   :root {
     --accent: #39ff88;
     --shell: rgba(58, 52, 47, 0.92);
@@ -76,17 +76,29 @@
   body.setup #setup { display: grid; }
   #setup [hidden] { display: none !important; }
   .hint { color: var(--dim); }
-  .status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  /* The radio and the LAN switch, then the OBS address, then a line about sharing it. Nothing
+     in the first line changes with the switch and the last line is always there, so switching
+     it moves neither the switch nor the cards under it. */
+  .status { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; }
+  .device { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .device b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status .obs, #lanNote { grid-column: 1 / -1; }
+  #lanNote { font-size: 13px; min-height: 1.3em; overflow-wrap: anywhere; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #555a61; flex: none; }
   .dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .dot.demo { background: var(--warn); }
-  .obs { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
-  .obs code { color: var(--ink); }
+  .obs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+  .obs code { color: var(--ink); overflow-wrap: anywhere; }
   .card { border: 1px solid #33363c; border-radius: 8px; padding: 12px 14px; background: #15161a; min-width: 0; }
   .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; margin: 0 0 12px; }
   .form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 16px; align-items: center; }
   .label { font-weight: 700; }
   .ctl { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; min-width: 0; }
+  /* named switches in even columns: two by two, all in a row when there's room, one under the other on a phone */
+  .switches { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 28px; }
+  .switches .toggle { white-space: nowrap; }
+  @container (min-width: 720px) { .switches { grid-template-columns: repeat(4, max-content); } }
+  @container (max-width: 340px) { .switches { grid-template-columns: max-content; } }
   .cardhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .cardhead h2 { margin: 0; }
   .actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -235,15 +247,14 @@
 
 <div id="setup">
   <header class="status">
-    <span id="devDot" class="dot"></span>
-    <b id="devName">-</b>
-    <span class="obs" title="In OBS, add a Browser source with this URL and size">
+    <span class="device"><span id="devDot" class="dot"></span><b id="devName">-</b></span>
+    <label class="toggle" title="Let OBS on another PC in this network show the overlay (it can only watch). Allow it if Windows asks.">
+      <input type="checkbox" role="switch" id="lanOn" data-test="lan-toggle">LAN</label>
+    <div class="obs" title="In OBS, add a Browser source with this URL and size">
       <span class="hint">OBS</span> <code id="obsUrl" data-test="obs-url"></code> <b id="obsSize" data-test="obs-size">680 &times; 830</b>
       <button id="copyUrl" class="small">Copy URL</button>
-      <label class="toggle" title="Let OBS on another PC in this network show the overlay (it can only watch). Allow it if Windows asks.">
-        <input type="checkbox" role="switch" id="lanOn" data-test="lan-toggle">Other PC</label>
-      <span id="lanNote" class="hint" data-test="lan-note"></span>
-    </span>
+    </div>
+    <div id="lanNote" class="hint" data-test="lan-note"></div>
   </header>
 
   <section class="card">
@@ -267,25 +278,22 @@
         <span id="skinMsg" class="hint"></span>
       </div>
 
-      <span class="label">Readout</span>
+      <span class="label">Show</span>
+      <div class="ctl switches">
+        <label class="toggle" title="The THR / RUD / ELE / AIL line under the radio"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" checked>Readout</label>
+        <label class="toggle" title="The channel bars under the radio"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" checked>Channel bars</label>
+        <label class="toggle" title="The switch labels around the radio (SA, SB... with their positions)"><input type="checkbox" role="switch" id="showLabels" data-test="show-labels" checked>Labels</label>
+        <label class="toggle" title="The antenna on top of the radio"><input type="checkbox" role="switch" id="showAntenna" data-test="show-antenna" checked>Antenna</label>
+      </div>
+
+      <span class="label">Stick mode</span>
       <div class="ctl">
-        <label class="toggle"><input type="checkbox" role="switch" id="showReadout" data-test="show-readout" aria-label="Show the stick readout" checked></label>
-        <select id="modeSel" data-test="mode-select" aria-label="Stick mode" title="Stick mode, for the readout's labels">
+        <select id="modeSel" data-test="mode-select" aria-label="Stick mode" title="Names the readout's values (greyed out while the readout is off)">
           <option value="1">Mode 1 (throttle right)</option>
           <option value="2">Mode 2 (throttle left)</option>
           <option value="3">Mode 3 (throttle right)</option>
           <option value="4">Mode 4 (throttle left)</option>
         </select>
-      </div>
-
-      <span class="label">Channel bars</span>
-      <div class="ctl">
-        <label class="toggle"><input type="checkbox" role="switch" id="showChannels" data-test="show-channels" aria-label="Show the channel bars" checked></label>
-      </div>
-
-      <span class="label">Labels</span>
-      <div class="ctl">
-        <label class="toggle"><input type="checkbox" role="switch" id="showLabels" data-test="show-labels" aria-label="Show the switch labels" checked></label>
       </div>
     </div>
   </section>
@@ -320,8 +328,9 @@ if (q.has("accent")) document.documentElement.style.setProperty("--accent", q.ge
 const OTHER_PC = /^https?:$/.test(location.protocol) && !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 const SETUP = q.get("setup") === "1" && !OTHER_PC;
 const SIDES = q.get("sides") === "1";
-// ?readout=0/1, ?channels=0/1 and ?labels=0/1 override the saved choice for one page
-const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels"), LABELS_PARAM = q.get("labels");
+// ?readout=0/1, ?channels=0/1, ?labels=0/1 and ?antenna=0/1 override the saved choice for one page
+const READOUT_PARAM = q.get("readout"), CHANNELS_PARAM = q.get("channels"), LABELS_PARAM = q.get("labels"),
+  ANTENNA_PARAM = q.get("antenna");
 const TRAIL = q.get("trail") === "0" ? 0 : Number(q.get("trail") || 20);
 const DEBUG = q.get("debug") === "1";
 const SKIN_PARAM = q.get("skin"); // a skin name, or "none" for the built-in drawing
@@ -380,15 +389,22 @@ function applyLabels(labels) {
   $("tags").style.display = labels ? "" : "none";
   $("root").dataset.labels = +labels;
 }
+// The antenna leaves an empty space above the radio rather than moving it up in a scene.
+function applyAntenna(antenna) {
+  $("antenna").style.display = antenna ? "" : "none";
+  $("root").dataset.antenna = +antenna;
+}
 const showPart = (param, saved) => (param === null ? saved : param !== "0");
 let showPreview; // the setup page's pick until the server echoes it
 function savedParts(s) {
-  const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false, labels: s.show_labels !== false };
-  if (showPreview && ["readout", "channels", "labels"].every(k => showPreview[k] === saved[k])) showPreview = undefined;
+  const saved = { readout: s.show_readout !== false, channels: s.show_channels !== false,
+                  labels: s.show_labels !== false, antenna: s.show_antenna !== false };
+  if (showPreview && Object.keys(saved).every(k => showPreview[k] === saved[k])) showPreview = undefined;
   return showPreview || saved;
 }
 applyParts(showPart(READOUT_PARAM, true), showPart(CHANNELS_PARAM, true));
 applyLabels(showPart(LABELS_PARAM, true));
+applyAntenna(showPart(ANTENNA_PARAM, true));
 if (!SIDES) { $("sideL").style.display = "none"; $("sideR").style.display = "none"; }
 if (DEBUG) $("debug").style.display = "block";
 
@@ -655,6 +671,7 @@ function render(s) {
   const parts = savedParts(s);
   applyParts(showPart(READOUT_PARAM, parts.readout), showPart(CHANNELS_PARAM, parts.channels));
   applyLabels(showPart(LABELS_PARAM, parts.labels));
+  applyAntenna(showPart(ANTENNA_PARAM, parts.antenna));
   if (!s.connected) {
     readoutText.replaceChildren();
     el("tspan", { class: "k" }, readoutText).textContent = "NO SIGNAL";
@@ -716,6 +733,7 @@ function renderSetup(s) {
   $("modeSel").disabled = !parts.readout; // it only names the readout's values
   $("showChannels").checked = parts.channels;
   $("showLabels").checked = parts.labels;
+  $("showAntenna").checked = parts.antenna;
   $("obsSize").textContent = `680 × ${obsHeight(parts.readout, parts.channels)}`;
   if (s.skin_rev !== skinsRev) {
     skinsRev = s.skin_rev;
@@ -765,7 +783,7 @@ function renderSetup(s) {
     `${LABEL[f.target] ?? f.target}: ${f.source ? `${chName(f.source)}${f.source.invert ? " reversed" : ""}` : "skipped"}`).join("  ·  ");
 }
 
-// What to paste into OBS: this PC's own address, or with "Other PC" on, its name in the
+// What to paste into OBS: this PC's own address, or with LAN on, its name in the
 // network (which works on this PC too), with its IP address in case the name isn't found.
 const PORT = location.port || 80;
 const urlFor = host => `http://${host.includes(":") ? `[${host}]` : host}:${PORT}/`;
@@ -786,7 +804,8 @@ function showObsUrl(s) {
   const note = $("lanNote");
   note.className = s.lan_error ? "warn" : "hint";
   note.textContent = s.lan_error
-    || (name && ip ? `or ${urlFor(ip)}` : s.lan && network && !name && !ip ? "No network found" : "");
+    || (!s.lan ? "Switch on LAN for OBS on another PC"
+      : name && ip ? `or ${urlFor(ip)}` : network && !name && !ip ? "No network found" : "");
 }
 $("obsUrl").textContent = obsUrl;
 $("lanOn").onchange = e => {
@@ -847,12 +866,11 @@ $("accentPick").oninput = e => chooseAccent(e.target.value, true);
 $("accentPick").onchange = e => chooseAccent(e.target.value);
 $("accentReset").onclick = () => chooseAccent(null);
 function sendShow() {
-  showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked, labels: $("showLabels").checked };
+  showPreview = { readout: $("showReadout").checked, channels: $("showChannels").checked,
+                  labels: $("showLabels").checked, antenna: $("showAntenna").checked };
   send("set_show", showPreview);
 }
-$("showReadout").onchange = sendShow;
-$("showChannels").onchange = sendShow;
-$("showLabels").onchange = sendShow;
+for (const id of ["showReadout", "showChannels", "showLabels", "showAntenna"]) $(id).onchange = sendShow;
 
 // ---------------- skins ----------------
 // A skin wraps the radio's body like a vinyl skin: any PNG, scaled to cover the body and

@@ -218,7 +218,7 @@ async fn starts_shared_and_says_where() {
     let Some(addr) = lan(ov.port) else { return };
     assert!(reachable(addr, true));
     let next = console_address(&ov, addr);
-    assert!(!next.contains("Other PC"), "no hint once shared: {next:?}");
+    assert!(!next.contains("\"LAN\""), "no hint once shared: {next:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -228,7 +228,7 @@ async fn says_where_and_how_before_it_is_switched_on() {
     let Some(addr) = lan(ov.port) else { return };
     let next = console_address(&ov, addr);
     assert!(
-        next.contains("\"Other PC\"") && next.contains("--lan"),
+        next.contains("\"LAN\"") && next.contains("--lan"),
         "{next:?}"
     );
     assert!(!reachable(addr, false), "but still closed");

@@ -36,13 +36,15 @@ pub enum Command {
     SetAccent {
         accent: Option<String>,
     },
-    /// `{"cmd":"set_show","readout":true,"channels":false,"labels":true}`: what shows
-    /// under and around the radio (the switch labels, if left out).
+    /// `{"cmd":"set_show","readout":true,"channels":false,"labels":true,"antenna":true}`:
+    /// what shows under and around the radio (the switch labels and antenna, if left out).
     SetShow {
         readout: bool,
         channels: bool,
         #[serde(default = "yes")]
         labels: bool,
+        #[serde(default = "yes")]
+        antenna: bool,
     },
     /// `{"cmd":"set_lan","on":true}`: let OBS on other PCs in the network show the overlay.
     SetLan {
@@ -177,10 +179,20 @@ impl Engine {
                 readout,
                 channels,
                 labels,
+                antenna,
             } => {
                 let c = &mut self.config;
-                if (readout, channels, labels) != (c.show_readout, c.show_channels, c.show_labels) {
-                    (c.show_readout, c.show_channels, c.show_labels) = (readout, channels, labels);
+                let shown = [
+                    c.show_readout,
+                    c.show_channels,
+                    c.show_labels,
+                    c.show_antenna,
+                ];
+                if [readout, channels, labels, antenna] != shown {
+                    c.show_readout = readout;
+                    c.show_channels = channels;
+                    c.show_labels = labels;
+                    c.show_antenna = antenna;
                     self.save("what shows under and around the radio");
                 }
             }

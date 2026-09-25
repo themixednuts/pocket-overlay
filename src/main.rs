@@ -20,13 +20,16 @@ to OBS as a Browser Source. Running it again while it runs opens that page again
 
   --demo            fake radio input, to set up the OBS scene without the radio
   --lan             let OBS on other PCs in this network show the overlay (saved; same
-                    as the \"Other PC\" switch on the settings page)
+                    as the \"LAN\" switch on the settings page)
   --no-browser      don't open the settings page at start
   --monitor         print raw channel values in the terminal instead of serving
   --record <file>   save every report from the radio to a file
   --replay <file>   play a recording back (`-` reads report lines from stdin)
   --config <file>   settings file (default: your user config folder)
-  --port <n>        HTTP port (default 7878; 0 picks a free one)
+  --port <n>        always this port: it never moves, and it stops if another program has
+                    it (start with it every time, e.g. from a shortcut, for an OBS URL
+                    that never changes; 0 = any free one). Without it: the saved port
+                    (7878 at first), moved and saved if another program takes it
 ";
 
 enum Input {

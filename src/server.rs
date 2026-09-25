@@ -196,7 +196,7 @@ pub fn print_lan_urls(port: u16, shared: bool) {
     eprintln!("  On another PC:       {}", urls.join("  or  "));
     if !shared {
         eprintln!(
-            "                       (switch on \"Other PC\" in the settings first, or start with --lan)"
+            "                       (switch on \"LAN\" in the settings first, or start with --lan)"
         );
     }
 }

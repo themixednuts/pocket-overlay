@@ -902,6 +902,82 @@ fn switch_labels_can_be_hidden() {
 }
 
 #[test]
+fn the_antenna_can_be_hidden() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    let obs = Page::open_sized(&ov, "?trail=0", (680, 830)).unwrap();
+    // scenes that keep it, or leave it out, whatever is saved
+    let pinned = Page::open_sized(&ov, "?trail=0&antenna=1", (680, 830)).unwrap();
+    let never = Page::open_sized(&ov, "?trail=0&antenna=0", (680, 830)).unwrap();
+    show(&mut ov, &obs, &Radio::default());
+    let box_of = |page: &Page, test: &str| -> Vec<f64> {
+        let b = page.eval(&format!(
+            "(b => JSON.stringify([b.x, b.y, b.width, b.height]))(document.querySelector('{test}').getBoundingClientRect())"
+        ));
+        serde_json::from_str(b.as_str().unwrap()).unwrap()
+    };
+    let antenna_is = |page: &Page, shown: bool| {
+        page.wait_until(
+            if shown {
+                "antenna shown"
+            } else {
+                "antenna hidden"
+            },
+            &format!(
+                "document.getElementById('root').dataset.antenna === '{}'",
+                u8::from(shown)
+            ),
+        );
+        let b = box_of(page, "#antenna");
+        assert_eq!(b[2] > 0.0, shown, "antenna at {b:?}, shown {shown}");
+        // the SB and SC nubs on the top edge stay
+        for nub in ["sb-nub", "sc-nub"] {
+            assert!(
+                box_of(page, &format!("[data-test={nub}]"))[2] > 0.0,
+                "{nub}"
+            );
+        }
+    };
+    let view_box =
+        |page: &Page| page.eval("document.getElementById('root').getAttribute('viewBox')");
+    let body = |page: &Page| box_of(page, "#frontBody");
+    let toggle = || setup.eval("document.querySelector('[data-test=show-antenna]').click()");
+
+    antenna_is(&obs, true);
+    antenna_is(&never, false);
+    let (before, body_before) = (view_box(&obs), body(&obs));
+    toggle();
+    antenna_is(&obs, false);
+    antenna_is(&pinned, true);
+    obs.screenshot("no-antenna");
+    // it leaves a space above the radio: nothing moves and the OBS size stays
+    assert_eq!(view_box(&obs), before);
+    assert_eq!(body(&obs), body_before);
+    assert_eq!(
+        setup.eval("document.querySelector('[data-test=obs-size]').textContent"),
+        "680 × 830"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ov.config_text().contains("show_antenna = false") {
+        assert!(Instant::now() < deadline, "not saved: {}", ov.config_text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // the other look switches are untouched
+    assert!(
+        !ov.config_text().contains("show_labels"),
+        "{}",
+        ov.config_text()
+    );
+
+    toggle();
+    antenna_is(&obs, true);
+    antenna_is(&never, false);
+}
+
+#[test]
 fn obs_on_another_pc_shows_the_overlay() {
     let _slot = browser_slot();
     let mut ov = Overlay::start();
@@ -914,13 +990,25 @@ fn obs_on_another_pc_shows_the_overlay() {
     };
     let port = ov.port;
     let obs_url = "document.querySelector('[data-test=obs-url]').textContent";
+    let note = "document.querySelector('[data-test=lan-note]').textContent";
     let toggle = "document.querySelector('[data-test=lan-toggle]').click()";
     assert_eq!(
         page.eval(obs_url),
         format!("http://127.0.0.1:{port}/").as_str()
     );
+    assert_eq!(page.eval(note), "Switch on LAN for OBS on another PC");
+    // where the switch and the settings under it are, at every size
+    let spots = || {
+        SIZES.map(|(w, h)| {
+            page.resize(w, h);
+            page.eval(
+                "JSON.stringify(['[data-test=lan-toggle]', '#setup .card'].map(s =>                  (b => [b.x, b.y])(document.querySelector(s).getBoundingClientRect())))",
+            )
+        })
+    };
+    let before = spots();
 
-    // one switch next to the OBS address: it becomes this PC's name in the network
+    // one switch over the OBS address: it becomes this PC's name in the network
     page.eval(toggle);
     let name = pocket_overlay::network::address().name;
     let want = format!("http://{}:{port}/", name.clone().unwrap_or(ip.to_string()));
@@ -929,9 +1017,19 @@ fn obs_on_another_pc_shows_the_overlay() {
         &format!("{obs_url} === {want:?}"),
     );
     if name.is_some() {
-        let note = page.eval("document.querySelector('[data-test=lan-note]').textContent");
-        assert_eq!(note, format!("or http://{ip}:{port}/").as_str());
+        page.wait_until(
+            "the IP address too",
+            &format!("{note} === 'or http://{ip}:{port}/'"),
+        );
     }
+    // a longer address and another line of text, and nothing moves
+    for (((w, h), before), after) in SIZES.iter().zip(before).zip(spots()) {
+        assert_eq!(
+            before, after,
+            "the switch or the settings moved at {w} x {h}"
+        );
+    }
+    page.resize(1280, 800);
     page.screenshot("setup-other-pc");
 
     // OBS on the other PC: the overlay, live, and no settings even when asked for
@@ -1631,6 +1729,49 @@ fn everything_stays_on_screen_at_any_size() {
         assert_on_screen(&setup, &format!("setup page, wizard on {target}"));
         setup.eval("document.getElementById('bSkip').click()");
     }
+}
+
+/// The Look card's named switches, row by row: [left, right, height] of each.
+const SWITCH_ROWS: &str = r##"(() => {
+  const rows = new Map();
+  for (const t of document.querySelectorAll(".switches .toggle")) {
+    const b = t.getBoundingClientRect(), top = Math.round(b.top);
+    rows.set(top, [...(rows.get(top) || []), [b.left, b.right, b.height]]);
+  }
+  return JSON.stringify([...rows.values()]);
+})()"##;
+
+#[test]
+fn look_switches_line_up_at_any_size() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    show(&mut ov, &setup, &Radio::default());
+    let mut layouts = std::collections::BTreeSet::new();
+    for (w, h) in SIZES {
+        setup.resize(w, h);
+        let rows: Vec<Vec<[f64; 3]>> =
+            serde_json::from_str(setup.eval(SWITCH_ROWS).as_str().unwrap()).unwrap();
+        let at = format!("at {w} x {h}: {rows:?}");
+        assert_eq!(rows.iter().map(Vec::len).sum::<usize>(), 4, "{at}");
+        // even rows: never three and one
+        let per_row = rows[0].len();
+        assert!([1, 2, 4].contains(&per_row), "{at}");
+        assert!(rows.iter().all(|r| r.len() == per_row), "{at}");
+        // each name on one line (a switch is 20 px tall), in columns
+        let height = rows[0][0][2];
+        for row in &rows {
+            for (i, [left, _, h]) in row.iter().enumerate() {
+                assert!(*h < 30.0 && (h - height).abs() < 0.5, "{at}");
+                assert!((left - rows[0][i][0]).abs() < 0.5, "{at}");
+            }
+        }
+        layouts.insert(per_row);
+    }
+    // one column on a phone, two by two, and all in a row on a wide screen
+    assert_eq!(layouts, [1, 2, 4].into(), "switches per row seen");
 }
 
 #[test]
