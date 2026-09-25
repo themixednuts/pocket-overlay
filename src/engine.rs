@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use tokio::sync::{mpsc, watch};
 
-use crate::config::{Config, Shadow};
+use crate::config::{Config, MAX_S1_DEADZONE, Shadow};
 use crate::detect::Detector;
 use crate::input::RawState;
 use crate::learn::{LearnStatus, Learner};
@@ -62,6 +62,11 @@ pub enum Command {
     SetLit {
         control: String,
         at: Vec<bool>,
+    },
+    /// `{"cmd":"set_s1_deadzone","percent":10}`: how far either side of its middle S1
+    /// counts as the middle, saved.
+    SetS1Deadzone {
+        percent: u8,
     },
     /// `{"cmd":"set_lan","on":true}`: let OBS on other PCs in the network show the overlay.
     SetLan {
@@ -237,6 +242,12 @@ impl Engine {
                 let changed = self.config.lit_at(&control).is_some_and(|now| now != at);
                 if changed && self.config.set_lit(&control, &at) {
                     self.save(&format!("where {control} lights up"));
+                }
+            }
+            Command::SetS1Deadzone { percent } => {
+                if percent <= MAX_S1_DEADZONE && percent != self.config.s1_deadzone {
+                    self.config.s1_deadzone = percent;
+                    self.save("S1's deadzone");
                 }
             }
             Command::SetLan { on } => {

@@ -184,6 +184,28 @@
   @container (max-width: 420px) { table { font-size: 12px; } td, th { padding-right: 6px; } .mini { width: 48px; } }
   /* a phone: the value bars go (the number stays), so the Lights up column fits */
   @container (max-width: 360px) { .mini { display: none; } }
+  /* S1's travel as three parts, active | deadzone | active: tinted where it lights up, with
+     a marker where S1 is now and a knob on each edge of the deadzone to drag */
+  .zones { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #23252a; font-size: 13px; }
+  .zlabel { font-weight: 700; white-space: nowrap; }
+  .zbar { position: relative; flex: 1 1 auto; min-width: 110px; max-width: 320px; height: 10px; border-radius: 5px;
+          background: #2a2c31; cursor: ew-resize; touch-action: none; }
+  .zbar .z { position: absolute; top: 0; bottom: 0; background: #2a2c31; }
+  .zbar .z.on { background: color-mix(in srgb, var(--accent) 55%, #2a2c31); }
+  #zLow { left: 0; border-radius: 5px 0 0 5px; } #zHigh { right: 0; border-radius: 0 5px 5px 0; }
+  .zbar .z.mid { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.09) 0 2px, transparent 2px 5px); }
+  .zmark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--ink); border-radius: 1px; pointer-events: none; }
+  .zknob { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #e9ecf1;
+           box-shadow: 0 0 0 2px #15161a; }
+  .zknob:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* the deadzone typed in: a small box like the page's other fields */
+  .zval { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #setup .zval input { width: 5ch; font: inherit; text-align: right; color: var(--ink); background: #23252a; border: 1px solid #454850;
+                       border-radius: 6px; padding: 3px 6px; -moz-appearance: textfield; appearance: textfield; }
+  #setup .zval input::-webkit-inner-spin-button, #setup .zval input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #setup .zval input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* a phone: the name and the number on one line, the bar under them the whole width */
+  @container (max-width: 360px) { .zones { flex-wrap: wrap; justify-content: space-between; } .zbar { order: 3; flex-basis: 100%; max-width: none; margin: 4px 7px; } }
   /* and the labels go above their controls */
   @container (max-width: 360px) { .form { grid-template-columns: minmax(0, 1fr); gap: 4px; } .ctl { margin-bottom: 8px; }
                                    .sliders { grid-column: auto; margin: 0 0 8px; } }
@@ -391,6 +413,16 @@
       <div id="found" class="hint"></div>
     </div>
     <table><thead><tr><th>Control</th><th>Channel</th><th>Now</th><th>Lights up</th></tr></thead><tbody id="map"></tbody></table>
+    <div id="s1Zones" class="zones" data-test="s1-zones" hidden>
+      <span class="zlabel">S1 deadzone</span>
+      <div id="zBar" class="zbar" title="S1's travel: it lights up in the coloured parts (pick them under Lights up). Drag an edge of the middle to widen or narrow its deadzone.">
+        <span id="zLow" class="z"></span><span id="zMid" class="z mid"></span><span id="zHigh" class="z"></span>
+        <span id="zMark" class="zmark"></span>
+        <span id="zKnobL" class="zknob" data-side="-1" data-test="s1-deadzone-left" role="slider" tabindex="0" aria-label="S1 deadzone" aria-valuemin="0" aria-valuemax="50"></span>
+        <span id="zKnobR" class="zknob" data-side="1" data-test="s1-deadzone" role="slider" tabindex="0" aria-label="S1 deadzone" aria-valuemin="0" aria-valuemax="50"></span>
+      </div>
+      <label class="zval" title="Percent of S1's travel either side of its middle, 0-50">±<input type="number" id="zIn" data-test="s1-deadzone-input" min="0" max="50" step="1" inputmode="numeric" aria-label="S1 deadzone, percent either side of the middle">%</label>
+    </div>
   </section>
 </div>
 <div id="debug"></div>
@@ -726,8 +758,15 @@ const STICK_MODES = {
 };
 const ARROW ={ 2: ["↑", "↓"], 3: ["↑", "–", "↓"] };
 const swText = (pos, n) => pos == null ? "n/a" : ARROW[n][pos];
-// Where S1 is, for lighting it up: 0 below its middle, 1 in it, 2 above.
-const s1Zone = v => v == null ? null : v < -0.02 ? 0 : v > 0.02 ? 2 : 1;
+// Where S1 is, for lighting it up: 0 below its deadzone, 1 in it, 2 above (dz: percent
+// either side of its middle).
+const s1Zone = (v, dz) => v == null ? null : v < -dz / 100 ? 0 : v > dz / 100 ? 2 : 1;
+let s1DzPreview; // the setup page's pick until the server echoes it
+function s1Deadzone(s) {
+  const saved = s.s1_deadzone ?? 2;
+  if (s1DzPreview === saved) s1DzPreview = undefined;
+  return s1DzPreview ?? saved;
+}
 function mapped(id, v) { $(id).classList.toggle("unmapped", v == null); }
 
 function render(s) {
@@ -764,7 +803,7 @@ function render(s) {
   // S1: ribs roll with the value; the rim lights once it's off centre
   for (const [ribsId, rimId, , , travel] of S1_WHEELS) {
     $(ribsId).setAttribute("transform", `translate(${(clamp(s.s1 ?? 0) * travel).toFixed(2)} 0)`);
-    $(rimId).classList.toggle("litStroke", lights("S1", s1Zone(s.s1)));
+    $(rimId).classList.toggle("litStroke", lights("S1", s1Zone(s.s1, s1Deadzone(s))));
     mapped(ribsId, s.s1);
   }
 
@@ -817,6 +856,7 @@ function render(s) {
   // test hooks: which input this frame shows
   root.dataset.channels = s.channels.join(",");
   root.dataset.lit = JSON.stringify(s.lit ?? {});
+  root.dataset.s1Deadzone = s1Deadzone(s);
   root.dataset.connected = s.connected;
 }
 
@@ -846,7 +886,7 @@ function showBar(td, v) {
 const LIGHT_MARKS = { SA: ARROW[2], SB: ARROW[3], SC: ARROW[3], SD: ARROW[2], SE: ["○", "●"], S1: ["−", "0", "+"] };
 const LIGHT_NAMES = {
   SA: ["up", "down"], SB: ["up", "middle", "down"], SC: ["up", "middle", "down"], SD: ["up", "down"],
-  SE: ["released", "pressed"], S1: ["below the middle", "in the middle", "above the middle"],
+  SE: ["released", "pressed"], S1: ["below its deadzone", "in its deadzone", "above its deadzone"],
 };
 const lightButtons = (key, lit) => `<span class="lights" role="group" aria-label="Where ${key} lights up">` +
   LIGHT_MARKS[key].map((mark, p) => {
@@ -891,10 +931,72 @@ function renderMap(s) {
   rows.forEach((r, i) => {
     const [, , now, lights] = $("map").rows[i].cells;
     if (r.v !== undefined) showBar(now, r.v);
-    const here = r.label === "S1" ? s1Zone(s.s1) : s[r.label.toLowerCase()];
+    const here = r.label === "S1" ? s1Zone(s.s1, s1Deadzone(s)) : s[r.label.toLowerCase()];
     [...lights.querySelectorAll("button")].forEach((b, p) => b.classList.toggle("here", p === here));
   });
+  showDeadzone(s1Deadzone(s), s.lit?.S1, s.controls.S1 ? s.s1 : undefined);
 }
+
+// ---------------- S1's deadzone ----------------
+function showDeadzone(dz, lit, v) {
+  $("s1Zones").hidden = v === undefined; // S1 not set up
+  const edge = side => `${50 + side * dz / 2}%`; // the bar is S1's travel, -100% to +100%
+  Object.assign($("zLow").style, { width: edge(-1) });
+  Object.assign($("zMid").style, { left: edge(-1), width: `${dz}%` });
+  Object.assign($("zHigh").style, { left: edge(1) });
+  ["zLow", "zMid", "zHigh"].forEach((id, i) => $(id).classList.toggle("on", !!lit?.[i]));
+  $("zKnobL").style.left = edge(-1);
+  $("zKnobR").style.left = edge(1);
+  for (const k of ["zKnobL", "zKnobR"]) {
+    $(k).setAttribute("aria-valuenow", dz);
+    $(k).setAttribute("aria-valuetext", `±${dz}%`);
+  }
+  $("zMark").style.display = v == null ? "none" : "";
+  if (v != null) $("zMark").style.left = `${(Math.max(-1, Math.min(1, v)) + 1) * 50}%`;
+  if (document.activeElement !== $("zIn")) $("zIn").value = dz; // not while it's being typed in
+}
+let dzTimer;
+function chooseDeadzone(dz, dragging = false) {
+  dz = Math.round(Math.max(0, Math.min(50, dz)));
+  s1DzPreview = dz;
+  if (document.activeElement !== $("zIn")) $("zIn").value = dz;
+  for (const k of ["zKnobL", "zKnobR"]) $(k).style.left = `${50 + (k === "zKnobL" ? -1 : 1) * dz / 2}%`;
+  clearTimeout(dzTimer);
+  dzTimer = setTimeout(() => send("set_s1_deadzone", { percent: dz }), dragging ? 80 : 0);
+}
+// drag: the deadzone reaches to wherever the pointer is, either side of the middle
+const dzAt = e => { const b = $("zBar").getBoundingClientRect(); return Math.abs((e.clientX - b.left) / b.width * 200 - 100); };
+$("zBar").onpointerdown = e => {
+  try { $("zBar").setPointerCapture(e.pointerId); } catch {}
+  $("zBar").dataset.dragging = "1";
+  chooseDeadzone(dzAt(e), true);
+};
+$("zBar").onpointermove = e => { if ($("zBar").dataset.dragging) chooseDeadzone(dzAt(e), true); };
+$("zBar").onpointerup = $("zBar").onpointercancel = e => {
+  if (!$("zBar").dataset.dragging) return;
+  delete $("zBar").dataset.dragging;
+  chooseDeadzone(dzAt(e));
+};
+// typed in: follows as it's typed (a number in range), and settles on Enter or leaving the
+// box, a number past either end becoming that end
+$("zIn").oninput = () => {
+  const v = $("zIn").valueAsNumber;
+  if (Number.isInteger(v) && v >= 0 && v <= 50) chooseDeadzone(v, true);
+};
+$("zIn").onchange = () => {
+  const v = $("zIn").valueAsNumber;
+  const dz = Number.isNaN(v) ? s1DzPreview ?? +$("zKnobR").getAttribute("aria-valuenow") : Math.round(Math.max(0, Math.min(50, v)));
+  $("zIn").value = dz;
+  chooseDeadzone(dz);
+};
+// keys on either knob: outward widens it, inward narrows it
+for (const k of ["zKnobL", "zKnobR"]) $(k).onkeydown = e => {
+  const out = +$(k).dataset.side, now = s1DzPreview ?? +$(k).getAttribute("aria-valuenow");
+  const step = { ArrowRight: out, ArrowUp: 1, ArrowLeft: -out, ArrowDown: -1, PageUp: 5, PageDown: -5, Home: -50, End: 50 }[e.key];
+  if (step === undefined) return;
+  e.preventDefault();
+  chooseDeadzone(now + step);
+};
 
 function renderSetup(s) {
   showObsUrl(s);

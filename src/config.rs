@@ -137,6 +137,13 @@ pub struct Config {
     /// Draw a soft shadow under the radio, as if it floats over the scene.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub show_shadow: bool,
+    /// S1's deadzone: how far either side of its middle (percent of its travel) counts as the
+    /// middle, for where it lights up. Past it, S1 is below or above.
+    #[serde(
+        default = "default_s1_deadzone",
+        skip_serializing_if = "is_default_s1_deadzone"
+    )]
+    pub s1_deadzone: u8,
     /// Let OBS on other PCs in the home network show the overlay (they can only watch).
     #[serde(default, skip_serializing_if = "is_false")]
     pub lan: bool,
@@ -221,6 +228,17 @@ fn default_mode() -> u8 {
     2
 }
 
+/// The widest S1's deadzone goes: half its travel.
+pub const MAX_S1_DEADZONE: u8 = 50;
+
+fn default_s1_deadzone() -> u8 {
+    2
+}
+
+fn is_default_s1_deadzone(dz: &u8) -> bool {
+    *dz == default_s1_deadzone()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -235,6 +253,7 @@ impl Default for Config {
             show_labels: true,
             show_antenna: true,
             show_shadow: true,
+            s1_deadzone: default_s1_deadzone(),
             lan: false,
             shadow: Shadow::default(),
             lit: BTreeMap::new(),
@@ -366,6 +385,9 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.s1_deadzone > MAX_S1_DEADZONE {
+            bail!("s1_deadzone: 0-{MAX_S1_DEADZONE} (percent either side of S1's middle)");
+        }
         if !self.shadow.valid() {
             bail!(
                 "shadow: angle is 0-359, distance 0-{}, blur 0-{} and strength 0-100",
@@ -535,12 +557,17 @@ SB = [\"mid\"]
             down: Some(40),
             ..Positions::default()
         });
+        let wide_deadzone = Config {
+            s1_deadzone: 51,
+            ..Config::default()
+        };
         let lit = |control: &str, at: &str| {
             let mut cfg = Config::default();
             cfg.lit.insert(control.into(), vec![at.into()]);
             cfg
         };
         for (cfg, reason) in [
+            (wide_deadzone, "s1_deadzone: 0-50"),
             (lit("SA", "mid"), r#"lit.SA: "mid" isn't one of up, down"#),
             (
                 lit("left_x", "up"),

@@ -75,6 +75,11 @@ impl Report {
     pub fn channel_count(&self) -> usize {
         self.axes.len() + self.buttons.len()
     }
+
+    /// The channel is on/off (a button), not a value.
+    pub fn is_button(&self, ch: usize) -> bool {
+        ch > self.axes.len() && ch <= self.channel_count()
+    }
 }
 
 impl Layout {

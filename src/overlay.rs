@@ -55,6 +55,8 @@ pub struct OverlayState {
     /// Where each switch (and S1) lights up: `"SB": [true, false, true]`, one flag per
     /// position (up, mid, down; SE released, pressed; S1 below, at, above its middle).
     pub lit: BTreeMap<&'static str, Vec<bool>>,
+    /// S1's deadzone, percent either side of its middle.
+    pub s1_deadzone: u8,
     /// Present while the channel-detection wizard runs (and after, until dismissed).
     pub learn: Option<LearnStatus>,
 }
@@ -82,6 +84,7 @@ pub fn map(
     let sw = |src: Option<Source>, positions| src.map(|src| switch_pos(value(r, src), positions));
     let sw3 = |m: Option<Mapping>| {
         m.map(|m| match m {
+            Mapping::Channel(src) if r.is_button(src.ch) => on_off_pos(r, src),
             Mapping::Channel(src) => switch_pos(value(r, src), 3),
             Mapping::Positions(p) => position(p, r),
         })
@@ -121,6 +124,7 @@ pub fn map(
             .iter()
             .filter_map(|&(control, ..)| Some((control, cfg.lit_at(control)?)))
             .collect(),
+        s1_deadzone: cfg.s1_deadzone,
         learn,
     }
 }
@@ -143,6 +147,19 @@ pub(crate) fn switch_pos(v: f32, positions: u8) -> u8 {
         3 => 1,
         _ if v > 0.0 => 1,
         _ => 0,
+    }
+}
+
+/// A 3-position switch on one on/off channel (CH9-32 over USB). Its middle mixes to 0,
+/// which is "off", so "off" is drawn as the middle (a switch at rest there looks it, level
+/// with one that has every position) and "on" as the end that turns the channel on. The
+/// other end is "off" too, so it's drawn as the middle as well: nothing tells them apart.
+fn on_off_pos(r: &Report, src: Source) -> u8 {
+    let on = r.channel(src.ch).is_some_and(|v| v > 0);
+    match (on, src.invert) {
+        (false, _) => 1,
+        (true, false) => 2,
+        (true, true) => 0,
     }
 }
 

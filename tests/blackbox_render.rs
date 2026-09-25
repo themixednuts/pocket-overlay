@@ -1202,6 +1202,109 @@ fn where_a_switch_lights_up_can_be_picked() {
 }
 
 #[test]
+fn s1s_deadzone_sets_where_it_lights_up() {
+    let _slot = browser_slot();
+    let mut ov = Overlay::start();
+    let Some(setup) = Page::open(&ov, "?setup=1&trail=0") else {
+        return;
+    };
+    let obs = Page::open_sized(&ov, "?trail=0", (680, 830)).unwrap();
+    let s1_lit = || {
+        obs.eval("document.getElementById('s1RimFront').classList.contains('litStroke')") == true
+    };
+    let deadzone_is = |dz: u8| {
+        obs.wait_until(
+            &format!("a ±{dz}% deadzone"),
+            &format!("document.getElementById('root').dataset.s1Deadzone === '{dz}'"),
+        );
+    };
+    let key = |knob: &str, key: &str, times: usize| {
+        setup.eval(&format!(
+            "(k => {{ for (let i = 0; i < {times}; i++) k.dispatchEvent(new KeyboardEvent('keydown', {{ key: '{key}', bubbles: true }})); }})\
+             (document.getElementById('{knob}'))"
+        ));
+    };
+    // lit either side of the deadzone (S1's default), dark in it
+    let lit_at = |ov: &mut Overlay, s1: f32| {
+        show(
+            ov,
+            &obs,
+            &Radio {
+                s1,
+                ..Radio::default()
+            },
+        );
+        s1_lit()
+    };
+
+    // ±2% to begin with
+    setup.wait_until(
+        "the deadzone bar",
+        "!document.getElementById('s1Zones').hidden",
+    );
+    assert!(lit_at(&mut ov, 0.15), "S1 at +15% with a ±2% deadzone");
+
+    // widened by keys on its right edge: +15% is in it now, +30% isn't, and the ring on the
+    // settings page is on the middle
+    key("zKnobR", "PageUp", 4);
+    deadzone_is(22);
+    assert!(!lit_at(&mut ov, 0.15), "S1 at +15% with a ±22% deadzone");
+    assert!(!lit_at(&mut ov, -0.15), "S1 at -15% with a ±22% deadzone");
+    setup.wait_until(
+        "the ring in the deadzone",
+        "document.querySelector('[data-light=S1][data-at=\"1\"]').classList.contains('here')",
+    );
+    assert!(
+        lit_at(&mut ov, 0.3) && lit_at(&mut ov, -0.3),
+        "S1 past a ±22% deadzone"
+    );
+    assert_eq!(
+        setup.eval("document.getElementById('zKnobR').style.left"),
+        "61%"
+    );
+    assert_eq!(setup.eval("document.getElementById('zIn').value"), "22");
+
+    // dragged out to ±40% on the bar: +30% is in it
+    setup.eval(
+        "(bar => { const b = bar.getBoundingClientRect(), x = pct => b.left + (pct + 100) / 200 * b.width;\
+           const ev = (t, pct) => bar.dispatchEvent(new PointerEvent(t, { clientX: x(pct), clientY: b.top + 5, pointerId: 1, bubbles: true }));\
+           ev('pointerdown', 25); ev('pointermove', -33); ev('pointerup', 40); })(document.getElementById('zBar'))",
+    );
+    deadzone_is(40);
+    assert!(!lit_at(&mut ov, 0.3), "S1 at +30% with a ±40% deadzone");
+
+    // the left edge's keys work outward too
+    key("zKnobL", "ArrowLeft", 1);
+    deadzone_is(41);
+    assert!(
+        ov.config_text().contains("s1_deadzone = 41\n"),
+        "{}",
+        ov.config_text()
+    );
+
+    // typed in: it follows as it's typed, and a number past the end becomes the end
+    let type_in = |text: &str, then: &str| {
+        setup.eval(&format!(
+            "(i => {{ i.focus(); i.value = '{text}'; i.dispatchEvent(new Event('input', {{ bubbles: true }})); {then} }})\
+             (document.getElementById('zIn'))"
+        ));
+    };
+    type_in("12", "");
+    deadzone_is(12);
+    assert!(lit_at(&mut ov, 0.15), "S1 at +15% with a ±12% deadzone");
+    type_in(
+        "75",
+        "i.dispatchEvent(new Event('change', { bubbles: true })); i.blur();",
+    );
+    deadzone_is(50);
+    assert_eq!(setup.eval("document.getElementById('zIn').value"), "50");
+    assert_eq!(
+        setup.eval("document.getElementById('zKnobR').style.left"),
+        "75%"
+    );
+}
+
+#[test]
 fn the_radio_floats_on_a_shadow_that_can_be_adjusted() {
     let _slot = browser_slot();
     let mut ov = Overlay::start();

@@ -891,7 +891,9 @@ async fn wizard_takes_on_off_channels_for_every_control() {
     assert_eq!(saved["controls"]["S1"]["ch"].as_integer(), Some(14));
     ws.command("learn_close").await;
 
-    // The ends read right. The middle is "off", so it reads like the end that's off.
+    // The middle is "off", and reads as the middle, like a switch with every position. The
+    // end that turns the channel on reads right; the other end is "off" too, so it reads as
+    // the middle. (SB's is on toward you, SC's, mixed reversed, away.)
     let at = |sb, sc, s1| Radio {
         sb,
         sc,
@@ -899,10 +901,10 @@ async fn wizard_takes_on_off_channels_for_every_control() {
         ..Radio::default()
     };
     for (radio, want) in [
-        (at(0, 0, -1.0), (0, 0, -1.0)),
-        (at(2, 2, 1.0), (2, 2, 1.0)),
-        (at(1, 1, -0.4), (0, 2, -1.0)),
-        (at(1, 1, 0.3), (0, 2, 1.0)),
+        (at(0, 0, -1.0), (1, 0, -1.0)),
+        (at(2, 2, 1.0), (2, 1, 1.0)),
+        (at(1, 1, -0.4), (1, 1, -1.0)),
+        (at(1, 1, 0.3), (1, 1, 1.0)),
     ] {
         let state = show(&mut ov, &mut ws, &radio).await;
         let got = (&state["sb"], &state["sc"], state["s1"].as_f64().unwrap());
@@ -1195,6 +1197,32 @@ strength = 35
         "{}",
         ov.config_text()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn s1s_deadzone_can_be_set() {
+    let ov = Overlay::start();
+    let mut ws = Ws::connect(ov.port).await;
+    assert_eq!(ws.last["s1_deadzone"], json!(2));
+    let set = |percent: i64| json!({ "cmd": "set_s1_deadzone", "percent": percent });
+
+    ws.send_json(set(20)).await;
+    ws.wait_for("a ±20% deadzone", |s| s["s1_deadzone"] == json!(20))
+        .await;
+    assert!(ov.config_text().contains("s1_deadzone = 20\n"));
+
+    // past half its travel, or not a percentage: nothing changes
+    ws.send_json(set(51)).await;
+    ws.send_json(set(-5)).await;
+    ws.send_json(json!({ "cmd": "set_mode", "mode": 1 })).await;
+    let state = ws.wait_for("mode 1", |s| s["mode"] == json!(1)).await;
+    assert_eq!(state["s1_deadzone"], json!(20));
+
+    // back to the default: out of the settings file
+    ws.send_json(set(2)).await;
+    ws.wait_for("±2% again", |s| s["s1_deadzone"] == json!(2))
+        .await;
+    assert!(!ov.config_text().contains("s1_deadzone"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
